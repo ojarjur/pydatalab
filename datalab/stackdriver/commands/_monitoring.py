@@ -76,7 +76,7 @@ def _list_resource_descriptors(args, _):
           ('Resource type', resource.type),
           ('Labels', ', '. join([l.key for l in resource.labels])),
       ])
-      for resource in gcm._utils.list_resource_descriptors(project_id)
+      for resource in gcm.list_resource_descriptors(project_id=project_id)
       if fnmatch.fnmatch(resource.type, pattern)
   ]
   return IPython.core.display.HTML(
@@ -94,7 +94,7 @@ def _list_metric_descriptors(args, _):
           ('Value', metric.value_type),
           ('Labels', ', '. join([l.key for l in metric.labels])),
       ])
-      for metric in gcm._utils.list_metric_descriptors(project_id)
+      for metric in gcm.list_metric_descriptors(project_id=project_id)
       if fnmatch.fnmatch(metric.type, pattern)
   ]
   return IPython.core.display.HTML(

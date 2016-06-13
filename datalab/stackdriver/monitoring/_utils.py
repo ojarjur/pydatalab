@@ -28,13 +28,39 @@ def make_client(project_id=None, context=None):
   )
 
 
-def list_resource_descriptors(project_id=None, context=None):
-  """Retuns a list of all resource descriptors."""
+def list_resource_descriptors(
+    filter_string=None, project_id=None, context=None):
+  """List all monitored resource descriptors for the project.
+
+  Args:
+    filter_string: An optional filter expression describing the resource
+      descriptors to be returned.
+    project_id: An optional project ID or number to override the one provided
+        by the context.
+    context: An optional Context object to use instead of the global default.
+
+  Returns:
+    A list of resource descriptor instances.
+  """
   client = make_client(project_id, context)
-  return client.list_resource_descriptors()
+  return client.list_resource_descriptors(filter_string)
 
 
-def list_metric_descriptors(project_id=None, context=None):
-  """Retuns a list of all metric descriptors."""
+def list_metric_descriptors(
+    filter_string=None, type_prefix=None, project_id=None, context=None):
+  """List all metric descriptors for the project.
+
+  Args:
+    filter_string: An optional filter expression describing the resource
+      descriptors to be returned.
+    type_prefix: An optional prefix constraining the selected metric types. This
+      adds ``metric.type = starts_with("<prefix>")`` to the filter.
+    project_id: An optional project ID or number to override the one provided
+        by the context.
+    context: An optional Context object to use instead of the global default.
+
+  Returns:
+    A list of metric descriptor instances.
+  """
   client = make_client(project_id, context)
-  return client.list_metric_descriptors()
+  return client.list_metric_descriptors(filter_string, type_prefix)
