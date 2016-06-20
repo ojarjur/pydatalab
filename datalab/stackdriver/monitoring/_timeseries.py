@@ -13,10 +13,12 @@
 """Provides access to metric data as pandas dataframes."""
 
 from __future__ import absolute_import
+from past.builtins import basestring
 
 import gcloud.monitoring
 import pandas
 
+from . import _dataframe
 from . import _utils
 
 
@@ -38,10 +40,11 @@ class Query(gcloud.monitoring.Query):
     before the query is executed.
 
     Args:
-      metric_type: The metric type name. The default value is
-          "compute.googleapis.com/instance/cpu/utilization", but
-          please note that this default value is provided only for
-          demonstration purposes and is subject to change.
+      metric_type: The metric type(s) to query. Can be a string for a single
+          metric type, or a list for one or more metrics. The default value is
+          "compute.googleapis.com/instance/cpu/utilization", but please note
+          that this default value is provided only for demonstration purposes
+          and is subject to change.
       end_time: The end time (inclusive) of the time interval for which
           results should be returned, as a datetime object. The default
           is the start of the current minute.
@@ -58,9 +61,28 @@ class Query(gcloud.monitoring.Query):
             the select_interval() method.
     """
     client = _utils.make_client(project_id, context)
+    if isinstance(metric_type, basestring):
+      metric_type = (metric_type,)
+    else:
+      metric_type = tuple(metric_type)
     super(Query, self).__init__(client, metric_type,
                                 end_time=end_time,
                                 days=days, hours=hours, minutes=minutes)
+
+  def __iter__(self):
+    return self.iter()
+
+  def iter(self, headers_only=False, page_size=None):
+    # For iteration, create a query with a single metric type.
+    single_metric_query = self.copy()
+    for metric_type in self._filter.metric_type:
+      single_metric_query._filter.metric_type = metric_type
+      for timeseries in super(Query, single_metric_query).iter(
+          headers_only, page_size):
+        yield timeseries
+
+  def as_dataframe(self, label=None, labels=None):
+    return _dataframe._build_dataframe(self, label, labels)
 
   def labels_as_dataframe(self):
     """Returns the resource and metric metadata as a dataframe.
@@ -83,13 +105,12 @@ class Query(gcloud.monitoring.Query):
     # Re-order the columns.
     resource_keys = gcloud.monitoring._dataframe._sorted_resource_labels(
         df['resource.labels'].columns)
-    sorted_columns = [('resource', 'type')]
-    sorted_columns += [('resource.labels', key) for key in resource_keys]
+    sorted_columns = [('metric', 'type'), ('resource', 'type')]
     sorted_columns += sorted(col for col in df.columns
                              if col[0] == 'metric.labels')
+    sorted_columns += [('resource.labels', key) for key in resource_keys]
     df = df[sorted_columns]
 
     # Sort the data, and clean up index values, and NaNs.
-    df = df.sort_values(sorted_columns).reset_index(drop=True)
-    df = df.fillna('')
+    df = df.sort_values(sorted_columns).reset_index(drop=True).fillna('')
     return df
