@@ -19,6 +19,7 @@ import gcloud.monitoring
 import pandas
 
 from . import _dataframe
+from . import _query_result
 from . import _utils
 
 
@@ -83,6 +84,9 @@ class Query(gcloud.monitoring.Query):
 
   def as_dataframe(self, label=None, labels=None):
     return _dataframe._build_dataframe(self, label, labels)
+
+  def execute(self):
+    return _query_result.QueryResult(self)
 
   def labels_as_dataframe(self):
     """Returns the resource and metric metadata as a dataframe.
