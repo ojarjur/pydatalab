@@ -25,12 +25,12 @@ import plotly.offline as py
 from . import _dataframe as dataframe_utils
 
 
-def _get_colorscale(mpl_colorscale=None, is_divergent=False, is_logscale=False,
+def _get_colorscale(colorscale=None, is_divergent=False, is_logscale=False,
                     val_range=None):
   """Returns a colorscale usable by the plotly heatmap method.
 
   Args:
-    mpl_colorscale: A colorscale supported by matplotlib.
+    colorscale: A colorscale supported by matplotlib.
     is_divergent: boolean, specifies if the series is divergent.
     is_logscale: boolean. If True, then return a logarithmic colorscale.
     val_range: An optional value range.
@@ -56,7 +56,7 @@ def _get_colorscale(mpl_colorscale=None, is_divergent=False, is_logscale=False,
       [1.0, 'rgb(5,48,97)']
    ]
   """
-  if mpl_colorscale is None:
+  if colorscale is None:
     if not is_divergent and val_range is not None:
       # If the colorscale is not marked as divergent, then decide based on the
       # range.
@@ -72,7 +72,7 @@ def _get_colorscale(mpl_colorscale=None, is_divergent=False, is_logscale=False,
     else:
       cmap = plt.get_cmap('GnBu')
   else:
-    cmap = plt.get_cmap(mpl_colorscale)
+    cmap = plt.get_cmap(colorscale)
 
   num_colors = 11
   num_partitions = num_colors - 1
@@ -90,78 +90,94 @@ def _get_colorscale(mpl_colorscale=None, is_divergent=False, is_logscale=False,
   return rgb_colormap
 
 
-def heatmap(df, label=None, labels=None, zrange=None, mpl_colorscale=None,
+def heatmap(dataframe, label=None, labels=None, zrange=None, colorscale=None,
             is_logscale=False, is_divergent=False, **kwargs):
   """Draws a plotly heatmap for the specified dataframe.
 
   Args:
-    df: The pandas DataFrame object to draw as a heatmap.
-    label: str, A single level of column header to pick.
-    labels: lsit, one or more levels of column header to pick.
-    zrange: A list or tuple of length 2 containing the range to use for the
-      colormap. If not specified, then it is calculated from the dataframe.
-    mpl_colorscale: str, A colorscale supported by matplotlib. See:
+    dataframe: The pandas DataFrame object to draw as a heatmap.
+    label: A single level of column header to pick.
+    labels: A list of one or more levels of column header to pick.
+    zrange: A list or tuple of length 2 numbers containing the range to use for
+      the colormap. If not specified, then it is calculated from the dataframe.
+    colorscale: str, A colorscale supported by matplotlib. See:
       http://matplotlib.org/examples/color/colormaps_reference.html
     is_logscale: boolean, if True, then a logarithmic colorscale is used.
-    is_divergent: boolean, specifies if the data has diverging values. If not
-      manually set to True, we check if the data diverges around 0, and use an
-      appropriate default colormap. Ignored if you specify the colormap.
+    is_divergent: boolean, specifies if the data has diverging values. If
+      False, we check if the data diverges around 0, and use an appropriate
+      default colormap. Ignored if you specify the colormap.
     **kwargs: Any arguments to pass in to the layout engine
       plotly.graph_objs.Layout().
   """
-  if df is None or df.empty:
+  if dataframe is None or dataframe.empty:
     return
-  # For the correlation matrix, the index and columns are the same. So we make
-  # the index be a single level as well if required.
-  if len(df.index.names) > 1 and df.index.names == df.columns.names:
-    df = dataframe_utils.extract_single_level(df.T, label, labels).T
+  # For a square dataframe with identical index and columns, we need to extract
+  # the single level names from both dimensions.
+  if (len(dataframe.index.names) > 1 and
+      dataframe.index.names == dataframe.columns.names):
+    dataframe = dataframe_utils.extract_single_level(
+        dataframe.T, label, labels).T
 
-  df = dataframe_utils.extract_single_level(df, label, labels)
+  dataframe = dataframe_utils.extract_single_level(dataframe, label, labels)
 
   # Make the heatmap taller.
   if 'height' not in kwargs:
-    kwargs['height'] = 800
+    kwargs['height'] = min(800, 200 + 25 * len(dataframe.columns))
 
-  # Make the left margin bigger
+  # Make the font smaller
+  if 'font' not in kwargs:
+    kwargs['font'] = {}
+  if 'size' not in kwargs['font']:
+    kwargs['font']['size'] = 10
+
+  # Adjust the left margin based on the size of the longest column label.
   if 'margin' not in kwargs:
     kwargs['margin'] = {}
   if 'l' not in kwargs['margin']:
-    kwargs['margin']['l'] = 150
+    kwargs['margin']['l'] = 0.6 * kwargs['font']['size'] * max([
+        len(col) for col in dataframe.columns])
 
-  zrange = zrange or (df.min().min(), df.max().max())
+  zrange = zrange or (dataframe.min().min(), dataframe.max().max())
   colorscale = _get_colorscale(
-      mpl_colorscale, is_divergent, is_logscale, zrange)
+      colorscale, is_divergent, is_logscale, zrange)
   heatmap_data = go.Heatmap(
-      z=df.T.values.tolist(), x=df.index, y=df.columns, colorscale=colorscale,
-      zauto=False, zmin=zrange[0], zmax=zrange[1])
+      z=dataframe.T.values.tolist(), x=dataframe.index, y=dataframe.columns,
+      colorscale=colorscale, zauto=False, zmin=zrange[0], zmax=zrange[1])
 
   fig = go.Figure(data=[heatmap_data], layout=go.Layout(**kwargs))
   py.iplot(fig, show_link=False)
 
 
-def linechart(df, label=None, labels=None, **kwargs):
+def linechart(dataframe, label=None, labels=None, **kwargs):
   """Draws a plotly linechart for the specified dataframe.
 
   Args:
-    df: The pandas DataFrame object to draw as a linechart.
-    label: str, A single level of column header to pick.
-    labels: lsit, one or more levels of column header to pick.
+    dataframe: The pandas DataFrame object to draw as a linechart.
+    label: A single level of column header to pick.
+    labels: A list of one or more levels of column header to pick.
     **kwargs: Any arguments to pass in to the layout engine
       plotly.graph_objs.Layout().
   """
-  if df is None or df.empty:
+  if dataframe is None or dataframe.empty:
     return
-  df = dataframe_utils.extract_single_level(df, label, labels)
-  column_names = df.columns.tolist()
+
+  column_names = dataframe.columns.tolist()
   if len(column_names) > len(set(column_names)):
     duplicates = [(col, count) for col, count in
                   collections.Counter(column_names).iteritems() if count > 1]
     raise ValueError('Cannot draw linechart of a dataframe with duplicate '
                      'column headers: %s' % duplicates)
 
+  dataframe = dataframe_utils.extract_single_level(dataframe, label, labels)
+
+  # Re-order the columns in descending order by their max.
+  dataframe = dataframe.reindex_axis(
+      dataframe.max().sort_values(ascending=False).index, axis=1)
+
   if 'height' not in kwargs:
     kwargs['height'] = 600
 
-  data = [go.Scatter(x=df.index, y=df[col], name=col) for col in df.columns]
+  data = [go.Scatter(x=dataframe.index, y=dataframe[col], name=col)
+          for col in dataframe.columns]
   fig = go.Figure(data=data, layout=go.Layout(**kwargs))
   py.iplot(fig, show_link=False)

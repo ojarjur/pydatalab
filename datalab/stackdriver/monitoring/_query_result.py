@@ -10,68 +10,127 @@
 # or implied.  See the License for the specific language governing permissions and limitations under
 # the License.
 
-"""QueryResult object with visualization methods."""
+"""QueryResults object with visualization methods."""
 
 from __future__ import absolute_import
+from past.builtins import basestring
+
+import pandas
 
 from . import _visualization
 
-class QueryResult(object):
-  """QueryResult object contains the results of executing a query."""
-  _DEFAULT_GROUP_BY = ('metric_type',)
+class QueryResults(object):
+  """QueryResults object contains the results of executing a query."""
+  _DEFAULT_PARTITION_BY = 'metric_type'
   _ALL_PLOT_KINDS = ('linechart', 'heatmap')
 
-  def __init__(self, query):
+  def __init__(self, query, use_short_metric_types=True):
+    self._query = query
     self._dataframe = query.as_dataframe()
-    self._metric_types = query.metric_type
+    if use_short_metric_types:
+      self._shorten_metric_types()
 
   @property
-  def metric_types(self):
-    return self._metric_types
+  def empty(self):
+    return self._dataframe.empty
 
-  def plot(self, kind='linechart', group_by=_DEFAULT_GROUP_BY,
+  @property
+  def query(self):
+    """The underlying query that generated these results."""
+    return self._query
+
+  def _shorten_metric_types(self):
+    """Shorten the metric types to only contain the value after the last '/'."""
+    new_columns = [[col[0].split('/')[-1]] + list(col[1:])
+                   for col in self._dataframe.columns]
+    self._dataframe.columns = pandas.MultiIndex.from_tuples(
+        new_columns, names=self._dataframe.columns.names)
+
+  def plot(self, kind='linechart', partition_by=_DEFAULT_PARTITION_BY,
            annotate_by=None, **kwargs):
-    """Draws a plotly chart for the specified dataframe.
+    """Draws a plotly chart for this QueryResults.
 
     Args:
       kind: The kind of chart to draw. Defaults to "linechart".
-      group_by: A list of labels to group the timeseries by.
-      annotate_by: A list of labels to annotate each chart by.
-      **kwargs: Any arguments to pass in to the layout engine
-        plotly.graph_objs.Layout().
+      partition_by: One or more labels to partition the results into separate
+        charts. It can be a string or a list/tuple. Defaults to 'metric_type'.
+      annotate_by: One or more labels to aggregate and annotate each chart by.
+        It can be a string or a list/tuple.
+      **kwargs: Keyword arguments to pass in to the underlying visualization.
+
+    Raises:
+      ValueError: "kind" is not a valid plot kind.
     """
     if kind not in self._ALL_PLOT_KINDS:
       raise ValueError('%r is not a valid plot kind' % kind)
+    if self.empty:
+      return
 
-    for name, df in self._dataframe.groupby(level=group_by, axis=1):
-      if df is None or df.empty:
-        continue
-      annotations = ['%s = %r' % (key, value)
-                     for key, value in zip(annotate_by, name)]
-      title = ', '.join(annotations)
-      if kind == 'linechart':
-        _visualization.linechart(df, labels=annotate_by, title=title)
-      elif kind == 'heatmap':
-        _visualization.heatmap(df, labels=annotate_by, title=title, **kwargs)
+    partition_by = _listify(partition_by)
+    annotate_by = _listify(annotate_by)
 
-  def linechart(self, group_by=_DEFAULT_GROUP_BY, annotate_by=None, **kwargs):
-    """Draws a plotly linechart for the specified dataframe.
+    if not partition_by:
+      dataframe_iter = [(None, self._dataframe)]
+    else:
+      dataframe_iter = self._dataframe.groupby(level=partition_by, axis=1)
+
+    for name, dataframe in dataframe_iter:
+      if not partition_by:
+        title = 'All timeseries'
+      else:
+        annotations = ['%s = %r' % (key, value)
+                       for key, value in zip(partition_by, _listify(name))]
+        title = ', '.join(annotations)
+
+      if annotate_by is None:
+        dataframe = dataframe.mean(axis=1).to_frame(name='aggregated')
+      else:
+        dataframe = dataframe.groupby(level=annotate_by, axis=1).mean()
+
+      # Call the appropriate visualization function.
+      getattr(_visualization, kind)(
+          dataframe, labels=annotate_by, title=title, **kwargs)
+
+  def linechart(self, partition_by=_DEFAULT_PARTITION_BY, annotate_by=None, **kwargs):
+    """Draws a plotly linechart for this QueryResults.
 
     Args:
-      group_by: A list of labels to group the timeseries by.
-      annotate_by: A list of labels to annotate each linechart by.
+      partition_by: One or more labels to partition the results into separate
+        linecharts. It can be a string or a list/tuple. Defaults to 'metric_type'.
+      annotate_by: One or more labels to aggregate and annotate each linechart
+        by. It can be a string or a list/tuple.
       **kwargs: Any arguments to pass in to the layout engine
         plotly.graph_objs.Layout().
     """
-    self.plot('linechart', group_by, annotate_by, **kwargs)
+    self.plot('linechart', partition_by, annotate_by, **kwargs)
 
-  def heatmap(self, group_by=_DEFAULT_GROUP_BY, annotate_by=None, **kwargs):
-    """Draws a plotly heatmap for the specified dataframe.
+  def heatmap(
+      self, partition_by=_DEFAULT_PARTITION_BY, annotate_by=None, zrange=None,
+      colorscale=None, is_logscale=False, is_divergent=False, **kwargs):
+    """Draws a plotly heatmap for this QueryResults.
 
     Args:
-      group_by: A list of labels to group the timeseries by.
-      annotate_by: A list of labels to annotate each linechart by.
+      partition_by: One or more labels to partition the results into separate
+        heatmaps. It can be a string or a list/tuple. Defaults to 'metric_type'.
+      annotate_by: One or more labels to aggregate and annotate each heatmap
+        by. It can be a string or a list/tuple.
+      zrange: A list or tuple of length 2 numbers containing the range to use
+        for the colormap. If not specified, then it is calculated from the
+        dataframe.
+      colorscale: str, A colorscale supported by matplotlib. See:
+        http://matplotlib.org/examples/color/colormaps_reference.html
+      is_logscale: boolean, if True, then a logarithmic colorscale is used.
+      is_divergent: boolean, specifies if the data has diverging values. If
+        False, we check if the data diverges around 0, and use an appropriate
+        default colormap. Ignored if you specify the colormap.
       **kwargs: Any arguments to pass in to the layout engine
         plotly.graph_objs.Layout().
     """
-    self.plot('heatmap', group_by, annotate_by, **kwargs)
+    self.plot('heatmap', partition_by, annotate_by, zrange=zrange,
+              colorscale=colorscale, is_logscale=is_logscale,
+              is_divergent=is_divergent, **kwargs)
+
+
+def _listify(value):
+  """If value is a string, convert to a list of one element."""
+  return [value] if isinstance(value, basestring) else value

@@ -102,13 +102,13 @@ def _get_timeseries_label(timeseries, key):
     return timeseries.labels.get(key, '')
 
 
-def extract_single_level(df, label=None, labels=None):
+def extract_single_level(dataframe, label=None, labels=None):
   """Returns a new dataframe with a single level of column header.
 
   Args:
-    df: The pandas DataFrame object that we do the manipulation on.
-    label: str, A single level of column header to pick.
-    labels: list, one or more levels of column header to pick.
+    dataframe: The pandas DataFrame object that we do the manipulation on.
+    label: A single level of column header to pick.
+    labels: A list of one or more levels of column header to pick.
 
   Returns:
     A new pandas dataframe with the same data as the input dataframe, but with
@@ -121,7 +121,7 @@ def extract_single_level(df, label=None, labels=None):
   Raises:
     ValueError: if both label and labels are specified.
   """
-  df_single = extract_levels(df, label, labels)
+  df_single = extract_levels(dataframe, label, labels)
 
   if len(df_single.columns.names) > 1:
     df_single.columns = [', '.join(map(str, col))
@@ -129,13 +129,13 @@ def extract_single_level(df, label=None, labels=None):
   return df_single
 
 
-def extract_levels(df, label=None, labels=None):
+def extract_levels(dataframe, label=None, labels=None):
   """Returns a new dataframe with the column headers of interest for a user.
 
   Args:
-    df: The pandas DataFrame object that we do the manipulation on.
-    label: str, A single level of column header to pick.
-    labels: lsit, one or more levels of column header to pick.
+    dataframe: The pandas DataFrame object that we do the manipulation on.
+    label: A single level of column header to pick.
+    labels: A list of one or more levels of column header to pick.
 
   Returns:
     A new pandas dataframe with the same data as the input dataframe, but with
@@ -153,20 +153,21 @@ def extract_levels(df, label=None, labels=None):
     raise ValueError('Exactly one of "label" and "labels" must be specified.')
 
   labels = [label] if label is not None else labels
-  df_mult = df.copy()
+  df_mult = dataframe.copy()
 
   # Checking for cases where nothing needs to be done: either the labels are
   # empty, or the labels match the columns.
-  if  labels is None or (labels == df.columns.names):
+  if  labels is None or (labels == dataframe.columns.names):
     return df_mult
 
   if len(labels) == 1:
     # Extracting a single level can be done in one line.
-    df_mult.columns = df.columns.get_level_values(labels[0])
+    df_mult.columns = dataframe.columns.get_level_values(labels[0])
   else:
     # Extracting multiple levels is more complex - we convert the headers
     # into a dataframe first, and then extract the levels in order.
-    df_headers = pandas.DataFrame(df.columns.tolist(), columns=df.columns.names)
+    df_headers = pandas.DataFrame(
+        dataframe.columns.tolist(), columns=dataframe.columns.names)
     df_headers = df_headers.reindex(columns=labels).fillna('')
     df_mult.columns = pandas.MultiIndex.from_arrays(
         df_headers.T.values, names=df_headers.columns.tolist())

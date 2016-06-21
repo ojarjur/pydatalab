@@ -66,6 +66,8 @@ class Query(gcloud.monitoring.Query):
       metric_type = (metric_type,)
     else:
       metric_type = tuple(metric_type)
+
+    self._results = None
     super(Query, self).__init__(client, metric_type,
                                 end_time=end_time,
                                 days=days, hours=hours, minutes=minutes)
@@ -83,10 +85,45 @@ class Query(gcloud.monitoring.Query):
         yield timeseries
 
   def as_dataframe(self, label=None, labels=None):
+    """Return all the selected time series as a pandas dataframe.
+
+    Args:
+      label: The label name to use for the dataframe header.
+        This can be the name of a resource label or metric label
+        (e.g., "instance_name"), or the string "resource_type".
+      labels: A list or tuple of label names to use for the dataframe
+        header. If more than one label name is provided, the resulting
+        dataframe will have a multi-level column header. Providing values
+        for both label and labels is an error.
+
+    Returns:
+      A dataframe where each column represents one time series.
+    """
     return _dataframe._build_dataframe(self, label, labels)
 
-  def execute(self):
-    return _query_result.QueryResult(self)
+  def execute(self, use_cache=True, use_short_metric_types=True):
+    """Executes the query, and populates the query results.
+
+    Args:
+      use_cache: whether to use cached results or not.
+      use_shorted_metric_types: whether to shorten the metric types or not.
+        Ignored if reading data from the cache.
+    """
+    if not use_cache or self._results is None:
+      self._results = _query_result.QueryResults(self, use_short_metric_types)
+
+  def results(self, use_cache=True, use_short_metric_types=True):
+    """Retrieves results for the query.
+
+    Args:
+      use_cache: whether to use cached results or not.
+      use_shorted_metric_types: whether to shorten the metric types or not.
+        Ignored if reading data from the cache.
+    Returns:
+      A QueryResults object containing the results.
+    """
+    self.execute(use_cache, use_short_metric_types)
+    return self._results
 
   def labels_as_dataframe(self):
     """Returns the resource and metric metadata as a dataframe.
