@@ -15,9 +15,22 @@
 from __future__ import absolute_import
 from past.builtins import basestring
 
-import pandas
+import pandas as pd
+import numpy as np
 
 from . import _visualization
+
+
+class Aggregator(object):
+  COUNT = 'count'
+  MIN = 'min'
+  MAX = 'max'
+  MEAN = 'mean'
+  MEDIAN = 'median'
+  STDDEV = 'std'
+  SUM = 'sum'
+  VARIANCE = 'var'
+
 
 class QueryResults(object):
   """QueryResults object contains the results of executing a query."""
@@ -43,11 +56,11 @@ class QueryResults(object):
     """Shorten the metric types to only contain the value after the last '/'."""
     new_columns = [[col[0].split('/')[-1]] + list(col[1:])
                    for col in self._dataframe.columns]
-    self._dataframe.columns = pandas.MultiIndex.from_tuples(
+    self._dataframe.columns = pd.MultiIndex.from_tuples(
         new_columns, names=self._dataframe.columns.names)
 
   def plot(self, kind='linechart', partition_by=_DEFAULT_PARTITION_BY,
-           annotate_by=None, **kwargs):
+           annotate_by=None, aggregation_method=Aggregator.MEAN, **kwargs):
     """Draws a plotly chart for this QueryResults.
 
     Args:
@@ -56,6 +69,8 @@ class QueryResults(object):
         charts. It can be a string or a list/tuple. Defaults to 'metric_type'.
       annotate_by: One or more labels to aggregate and annotate each chart by.
         It can be a string or a list/tuple.
+      aggregation_method: The method to apply to the aggregate the timeseries in
+        a single chart given the annotate_by fields.
       **kwargs: Keyword arguments to pass in to the underlying visualization.
 
     Raises:
@@ -65,6 +80,8 @@ class QueryResults(object):
       raise ValueError('%r is not a valid plot kind' % kind)
     if self.empty:
       return
+    if isinstance(aggregation_method, basestring):
+      aggregation_method = Aggregator[aggregation_method]
 
     partition_by = _listify(partition_by)
     annotate_by = _listify(annotate_by)
@@ -83,15 +100,18 @@ class QueryResults(object):
         title = ', '.join(annotations)
 
       if annotate_by is None:
-        dataframe = dataframe.mean(axis=1).to_frame(name='aggregated')
+        aggregated_series = getattr(dataframe, aggregation_method)(axis=1)
+        dataframe = aggregated_series.to_frame(name='aggregated')
       else:
-        dataframe = dataframe.groupby(level=annotate_by, axis=1).mean()
+        grouped = dataframe.groupby(level=annotate_by, axis=1)
+        dataframe = grouped.agg(aggregation_method)
 
       # Call the appropriate visualization function.
       getattr(_visualization, kind)(
           dataframe, labels=annotate_by, title=title, **kwargs)
 
-  def linechart(self, partition_by=_DEFAULT_PARTITION_BY, annotate_by=None, **kwargs):
+  def linechart(self, partition_by=_DEFAULT_PARTITION_BY, annotate_by=None,
+                aggregation_method='mean', **kwargs):
     """Draws a plotly linechart for this QueryResults.
 
     Args:
@@ -99,14 +119,17 @@ class QueryResults(object):
         linecharts. It can be a string or a list/tuple. Defaults to 'metric_type'.
       annotate_by: One or more labels to aggregate and annotate each linechart
         by. It can be a string or a list/tuple.
+      aggregation_method: The method to apply to the aggregate the timeseries in
+        a single chart given the annotate_by fields.
       **kwargs: Any arguments to pass in to the layout engine
         plotly.graph_objs.Layout().
     """
-    self.plot('linechart', partition_by, annotate_by, **kwargs)
+    self.plot('linechart', partition_by, annotate_by, aggregation_method,
+              **kwargs)
 
-  def heatmap(
-      self, partition_by=_DEFAULT_PARTITION_BY, annotate_by=None, zrange=None,
-      colorscale=None, is_logscale=False, is_divergent=False, **kwargs):
+  def heatmap(self, partition_by=_DEFAULT_PARTITION_BY, annotate_by=None,
+              aggregation_method='mean', zrange=None, colorscale=None,
+              is_logscale=False, is_divergent=False, **kwargs):
     """Draws a plotly heatmap for this QueryResults.
 
     Args:
@@ -114,6 +137,8 @@ class QueryResults(object):
         heatmaps. It can be a string or a list/tuple. Defaults to 'metric_type'.
       annotate_by: One or more labels to aggregate and annotate each heatmap
         by. It can be a string or a list/tuple.
+      aggregation_method: The method to apply to the aggregate the timeseries in
+        a single chart given the annotate_by fields.
       zrange: A list or tuple of length 2 numbers containing the range to use
         for the colormap. If not specified, then it is calculated from the
         dataframe.
@@ -126,8 +151,8 @@ class QueryResults(object):
       **kwargs: Any arguments to pass in to the layout engine
         plotly.graph_objs.Layout().
     """
-    self.plot('heatmap', partition_by, annotate_by, zrange=zrange,
-              colorscale=colorscale, is_logscale=is_logscale,
+    self.plot('heatmap', partition_by, annotate_by, aggregation_method,
+              zrange=zrange, colorscale=colorscale, is_logscale=is_logscale,
               is_divergent=is_divergent, **kwargs)
 
 

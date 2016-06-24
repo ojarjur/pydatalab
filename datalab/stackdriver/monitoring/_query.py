@@ -19,7 +19,7 @@ import gcloud.monitoring
 import pandas
 
 from . import _dataframe
-from . import _query_result
+from . import _query_results
 from . import _utils
 
 
@@ -110,7 +110,7 @@ class Query(gcloud.monitoring.Query):
         Ignored if reading data from the cache.
     """
     if not use_cache or self._results is None:
-      self._results = _query_result.QueryResults(self, use_short_metric_types)
+      self._results = _query_results.QueryResults(self, use_short_metric_types)
 
   def results(self, use_cache=True, use_short_metric_types=True):
     """Retrieves results for the query.
