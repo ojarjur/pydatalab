@@ -21,6 +21,8 @@ import operator
 import numpy
 import pandas
 
+from IPython import display
+
 from . import _utils
 from . import _visualization
 
@@ -79,9 +81,9 @@ class QueryResults(object):
         freq=self.frequency,
     )
 
-  def _is_valid_key(self, keys):
-    keys = _utils.listify(keys)
-    return set(keys) <= set(self.label_keys)
+  def table(self, max_points=-1):
+    """Visualize the results as an HTML table."""
+    display.display(self._dataframe.head(max_points))
 
   def is_compatible(self, other):
     if not isinstance(other, QueryResults):
@@ -121,11 +123,6 @@ class QueryResults(object):
       new_metric_type = '(%s %s %s)' % (
           self.metric_type, operation_to_symbol[operation], other_metric_type)
 
-    return QueryResults(new_df, new_metric_type)
-
-  def _unary_operation(self, operation):
-    new_df = getattr(numpy, operation)(self._dataframe)
-    new_metric_type = '%s(%s)' % (operation,  self.metric_type)
     return QueryResults(new_df, new_metric_type)
 
   def __add__(self, other, reverse_order=False):
@@ -172,6 +169,11 @@ class QueryResults(object):
 
   def __mod__(self, other, reverse_order=False):
     return self._binary_operation(other, 'mod', reverse_order)
+
+  def _unary_operation(self, operation):
+    new_df = getattr(numpy, operation)(self._dataframe)
+    new_metric_type = '%s(%s)' % (operation,  self.metric_type)
+    return QueryResults(new_df, new_metric_type)
 
   def __rmod__(self, other):
     return self.__mod__(other, True)
