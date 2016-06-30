@@ -41,7 +41,7 @@ class QueryResults(object):
 
   @property
   def frequency(self):
-    """The frequency of datatpoints in seconds."""
+    """The frequency of datapoints in seconds."""
     if len(self._dataframe.index) < 2:
       return numpy.nan
     ts_freq = self._dataframe.index[1] - self._dataframe.index[0]
@@ -250,6 +250,27 @@ class QueryResults(object):
   def percentile(self, by=None, quantile=50):
     percentile_func = lambda x: numpy.nanpercentile(x, q=quantile)
     return self._aggregate(by, percentile_func, 'percentile_%s' % quantile)
+
+  def _top_sorted(self, count=5, percentage=None, agg='mean', is_top=True):
+    df = self._dataframe
+    if percentage is not None:
+      if not 0 < percentage <= 100:
+        raise ValueError('"percentage" must a number between 0 and 100')
+      count = int(numpy.ceil(percentage/100.0 * len(df.columns)))
+    agg_method = getattr(numpy, agg)
+    sorted_df = df.apply(agg_method).sort_values(ascending=is_top)
+    new_df = df.reindex_axis(sorted_df.index, axis=1).iloc[:, -count:]
+
+    caller = 'top' if is_top else 'bottom'
+    number = count if percentage is None else '%s%%' % percentage
+    new_metric_type = '%s_%s_%s(%s)' % (caller, number, agg, self.metric_type)
+    return QueryResults(new_df, new_metric_type)
+
+  def top(self, count=5, percentage=None, agg='mean'):
+    return self._top_sorted(count, percentage, agg, is_top=True)
+
+  def bottom(self, count=5, percentage=None, agg='mean'):
+    return self._top_sorted(count, percentage, agg, is_top=False)
 
   def linechart(self, partition_by=None, annotate_by=None, **kwargs):
     """Draws a plotly linechart for this QueryResults.
