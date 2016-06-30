@@ -15,14 +15,17 @@
 from __future__ import absolute_import
 
 import collections
+import sys
 
 import matplotlib.pyplot as plt
+import pandas
 
 import plotly.graph_objs as go
 import plotly.offline as py
 
 # Internal imports
 from . import _dataframe as dataframe_utils
+from . import _utils
 
 
 def _get_colorscale(colorscale=None, is_divergent=False, is_logscale=False,
@@ -90,14 +93,13 @@ def _get_colorscale(colorscale=None, is_divergent=False, is_logscale=False,
   return rgb_colormap
 
 
-def heatmap(dataframe, label=None, labels=None, zrange=None, colorscale=None,
+def heatmap(dataframe, levels=None, zrange=None, colorscale=None,
             is_logscale=False, is_divergent=False, **kwargs):
   """Draws a plotly heatmap for the specified dataframe.
 
   Args:
     dataframe: The pandas DataFrame object to draw as a heatmap.
-    label: A single level of column header to pick.
-    labels: A list of one or more levels of column header to pick.
+    levels: A list of one or more levels of column header to pick.
     zrange: A list or tuple of length 2 numbers containing the range to use for
       the colormap. If not specified, then it is calculated from the dataframe.
     colorscale: str, A colorscale supported by matplotlib. See:
@@ -116,9 +118,9 @@ def heatmap(dataframe, label=None, labels=None, zrange=None, colorscale=None,
   if (len(dataframe.index.names) > 1 and
       dataframe.index.names == dataframe.columns.names):
     dataframe = dataframe_utils.extract_single_level(
-        dataframe.T, label, labels).T
+        dataframe.T, levels).T
 
-  dataframe = dataframe_utils.extract_single_level(dataframe, label, labels)
+  dataframe = dataframe_utils.extract_single_level(dataframe, levels)
 
   # Make the heatmap taller.
   if 'height' not in kwargs:
@@ -148,27 +150,19 @@ def heatmap(dataframe, label=None, labels=None, zrange=None, colorscale=None,
   py.iplot(fig, show_link=False)
 
 
-def linechart(dataframe, label=None, labels=None, **kwargs):
+def linechart(dataframe, levels=None, **kwargs):
   """Draws a plotly linechart for the specified dataframe.
 
   Args:
     dataframe: The pandas DataFrame object to draw as a linechart.
-    label: A single level of column header to pick.
-    labels: A list of one or more levels of column header to pick.
+    levels: A list of one or more levels of column header to pick.
     **kwargs: Any arguments to pass in to the layout engine
       plotly.graph_objs.Layout().
   """
   if dataframe is None or dataframe.empty:
     return
 
-  column_names = dataframe.columns.tolist()
-  if len(column_names) > len(set(column_names)):
-    duplicates = [(col, count) for col, count in
-                  collections.Counter(column_names).iteritems() if count > 1]
-    raise ValueError('Cannot draw linechart of a dataframe with duplicate '
-                     'column headers: %s' % duplicates)
-
-  dataframe = dataframe_utils.extract_single_level(dataframe, label, labels)
+  dataframe = dataframe_utils.extract_single_level(dataframe, levels)
 
   # Re-order the columns in descending order by their max.
   dataframe = dataframe.reindex_axis(
@@ -181,3 +175,82 @@ def linechart(dataframe, label=None, labels=None, **kwargs):
           for col in dataframe.columns]
   fig = go.Figure(data=data, layout=go.Layout(**kwargs))
   py.iplot(fig, show_link=False)
+
+
+_ALL_PLOT_KINDS = ('linechart', 'heatmap')
+
+
+def plot(query_results, kind='linechart', partition_by=None,
+         annotate_by=None, **kwargs):
+  """Draws a plotly chart for this QueryResults.
+
+  Args:
+    query_results: One or more QueryResult objects.
+    kind: The kind of chart to draw. Defaults to "linechart".
+    partition_by: One or more labels to partition the results into separate
+      charts. It can be a string or a list/tuple.
+    annotate_by: One or more labels to aggregate and annotate each chart by.
+      It can be a string or a list/tuple.
+    **kwargs: Keyword arguments to pass in to the underlying visualization.
+
+  Raises:
+    ValueError: "kind", "partition_by" or "annotate_by" does not have a valid
+      value.
+  """
+  if kind not in _ALL_PLOT_KINDS:
+    raise ValueError('%r is not a valid plot kind' % kind)
+
+  partition_by = _utils.listify(partition_by)
+  annotate_by = _utils.listify(annotate_by)
+
+  if isinstance(query_results, collections.Iterable):
+    by_metric_type = False
+    if 'metric_type' in partition_by:
+      by_metric_type = True
+      partition_by.remove('metric_type')
+    elif 'metric_type' not in annotate_by:
+      by_metric_type = True
+
+    # Special case. No need to join the dataframe, and then split.
+    if by_metric_type:
+      for qr in query_results:
+        plot(qr, kind, partition_by, annotate_by, **kwargs)
+      return
+
+    all_dataframes = []
+    for i, qr in enumerate(query_results):
+      if (i < len(query_results) - 1 and
+          not qr.is_compatible(query_results[i + 1])):
+        raise ValueError('The specified QueryResults are not compatible for '
+                         'viewing in the same chart.')
+      df = dataframe_utils.add_level(qr._dataframe, qr.metric_type,
+                                     'metric_type')
+      all_dataframes.append(df)
+    dataframe = pandas.concat(all_dataframes, axis=1)
+
+  else:
+    dataframe = query_results._dataframe
+
+  if not partition_by:
+    dataframe_iter = [(None, dataframe)]
+  else:
+    # When the dataframe has a single level, groupby does not accept a level
+    # other than 0.
+    level = 0 if len(dataframe.columns.names) == 1 else partition_by
+    dataframe_iter = dataframe.groupby(level=level, axis=1)
+
+  for name, dataframe in dataframe_iter:
+    if not partition_by:
+      if isinstance(query_results, collections.Iterable):
+        title = 'All data'
+      else:
+        title = 'metric_type = %s' % query_results.metric_type
+    else:
+      title = ', '.join(['%s = %r' % (k, v)
+                         for k, v in zip(partition_by, _utils.listify(name))])
+
+    # Call the appropriate visualization function.
+    thismodule = sys.modules[__name__]
+    getattr(thismodule, kind)(dataframe, levels=annotate_by, title=title,
+                              **kwargs)
+

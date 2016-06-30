@@ -13,7 +13,6 @@
 """Provides access to metric data as pandas dataframes."""
 
 from __future__ import absolute_import
-from past.builtins import basestring
 
 import gcloud.monitoring
 import pandas
@@ -41,11 +40,10 @@ class Query(gcloud.monitoring.Query):
     before the query is executed.
 
     Args:
-      metric_type: The metric type(s) to query. Can be a string for a single
-          metric type, or a list for one or more metrics. The default value is
-          "compute.googleapis.com/instance/cpu/utilization", but please note
-          that this default value is provided only for demonstration purposes
-          and is subject to change.
+      metric_type: The metric type name. The default value is
+          "compute.googleapis.com/instance/cpu/utilization", but
+          please note that this default value is provided only for
+          demonstration purposes and is subject to change.
       end_time: The end time (inclusive) of the time interval for which
           results should be returned, as a datetime object. The default
           is the start of the current minute.
@@ -62,67 +60,43 @@ class Query(gcloud.monitoring.Query):
             the select_interval() method.
     """
     client = _utils.make_client(project_id, context)
-    if isinstance(metric_type, basestring):
-      metric_type = (metric_type,)
-    else:
-      metric_type = tuple(metric_type)
-
     self._results = None
     super(Query, self).__init__(client, metric_type,
                                 end_time=end_time,
                                 days=days, hours=hours, minutes=minutes)
 
-  def __iter__(self):
-    return self.iter()
-
-  def iter(self, headers_only=False, page_size=None):
-    # For iteration, create a query with a single metric type.
-    single_metric_query = self.copy()
-    for metric_type in self._filter.metric_type:
-      single_metric_query._filter.metric_type = metric_type
-      for timeseries in super(Query, single_metric_query).iter(
-          headers_only, page_size):
-        yield timeseries
-
-  def as_dataframe(self, label=None, labels=None):
-    """Return all the selected time series as a pandas dataframe.
+  def select_metric_type(self, metric_type):
+    """Copy the query and update the metric type.
 
     Args:
-      label: The label name to use for the dataframe header.
-        This can be the name of a resource label or metric label
-        (e.g., "instance_name"), or the string "resource_type".
-      labels: A list or tuple of label names to use for the dataframe
-        header. If more than one label name is provided, the resulting
-        dataframe will have a multi-level column header. Providing values
-        for both label and labels is an error.
+      metric_type: The metric type name.
 
     Returns:
-      A dataframe where each column represents one time series.
+      The new query object.
     """
-    return _dataframe._build_dataframe(self, label, labels)
+    new_query = self.copy()
+    new_query._filter.metric_type = metric_type
+    return new_query
 
-  def execute(self, use_cache=True, use_short_metric_types=True):
+  def execute(self, use_cache=True):
     """Executes the query, and populates the query results.
 
     Args:
       use_cache: whether to use cached results or not.
-      use_shorted_metric_types: whether to shorten the metric types or not.
-        Ignored if reading data from the cache.
     """
     if not use_cache or self._results is None:
-      self._results = _query_results.QueryResults(self, use_short_metric_types)
+      self._results = _query_results.QueryResults(
+          self.as_dataframe(), self.metric_type, shorten_metric_type=True)
 
-  def results(self, use_cache=True, use_short_metric_types=True):
+  def results(self, use_cache=True):
     """Retrieves results for the query.
 
     Args:
       use_cache: whether to use cached results or not.
-      use_shorted_metric_types: whether to shorten the metric types or not.
-        Ignored if reading data from the cache.
     Returns:
       A QueryResults object containing the results.
     """
-    self.execute(use_cache, use_short_metric_types)
+    self.execute(use_cache)
     return self._results
 
   def labels_as_dataframe(self):

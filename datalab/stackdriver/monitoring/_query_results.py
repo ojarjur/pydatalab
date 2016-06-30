@@ -15,103 +15,243 @@
 from __future__ import absolute_import
 from past.builtins import basestring
 
-import pandas as pd
-import numpy as np
+import datetime
+import operator
 
+import numpy
+import pandas
+
+from . import _utils
 from . import _visualization
-
-
-class Aggregator(object):
-  COUNT = 'count'
-  MIN = 'min'
-  MAX = 'max'
-  MEAN = 'mean'
-  MEDIAN = 'median'
-  STDDEV = 'std'
-  SUM = 'sum'
-  VARIANCE = 'var'
 
 
 class QueryResults(object):
   """QueryResults object contains the results of executing a query."""
-  _DEFAULT_PARTITION_BY = 'metric_type'
-  _ALL_PLOT_KINDS = ('linechart', 'heatmap')
 
-  def __init__(self, query, use_short_metric_types=True):
-    self._query = query
-    self._dataframe = query.as_dataframe()
-    if use_short_metric_types:
-      self._shorten_metric_types()
+  def __init__(self, dataframe, metric_type, shorten_metric_type=False):
+    self._dataframe = dataframe
+    self.metric_type = metric_type
+    if shorten_metric_type:
+      self.metric_type = metric_type.split('/')[-1]
 
   @property
   def empty(self):
+    """Returns True iff the results are empty."""
     return self._dataframe.empty
 
   @property
-  def query(self):
-    """The underlying query that generated these results."""
-    return self._query
+  def frequency(self):
+    """The frequency of datatpoints in seconds."""
+    if len(self._dataframe.index) < 2:
+      return numpy.nan
+    ts_freq = self._dataframe.index[1] - self._dataframe.index[0]
+    return int(ts_freq.total_seconds())
 
-  def _shorten_metric_types(self):
-    """Shorten the metric types to only contain the value after the last '/'."""
-    new_columns = [[col[0].split('/')[-1]] + list(col[1:])
-                   for col in self._dataframe.columns]
-    self._dataframe.columns = pd.MultiIndex.from_tuples(
-        new_columns, names=self._dataframe.columns.names)
+  @property
+  def timestamps(self):
+    """The list of timestamps present in this result."""
+    return self._dataframe.index.to_pydatetime()
 
-  def plot(self, kind='linechart', partition_by=_DEFAULT_PARTITION_BY,
-           annotate_by=None, aggregation_method=Aggregator.MEAN, **kwargs):
-    """Draws a plotly chart for this QueryResults.
+  @property
+  def labels(self):
+    """The list of resource and metric labels in this data as dicts."""
+    multiindex = self._dataframe.columns
+    col_df = pandas.DataFrame(multiindex.tolist(), index=multiindex.names)
+    return list(col_df.to_dict().itervalues())
 
-    Args:
-      kind: The kind of chart to draw. Defaults to "linechart".
-      partition_by: One or more labels to partition the results into separate
-        charts. It can be a string or a list/tuple. Defaults to 'metric_type'.
-      annotate_by: One or more labels to aggregate and annotate each chart by.
-        It can be a string or a list/tuple.
-      aggregation_method: The method to apply to the aggregate the timeseries in
-        a single chart given the annotate_by fields.
-      **kwargs: Keyword arguments to pass in to the underlying visualization.
+  @property
+  def label_keys(self):
+    return self._dataframe.columns.names
 
-    Raises:
-      ValueError: "kind" is not a valid plot kind.
-    """
-    if kind not in self._ALL_PLOT_KINDS:
-      raise ValueError('%r is not a valid plot kind' % kind)
+  def __repr__(self):
+    """Return a representation string with the points elided."""
+    rep = '<QueryResults for metric=%r:' % self.metric_type
     if self.empty:
-      return
-    if isinstance(aggregation_method, basestring):
-      aggregation_method = Aggregator[aggregation_method]
+      return rep + ' empty>'
+    return (
+        '{rep_start}\n'
+        '{num2} resources\n'
+        '{num1} timestamps with 1 point every {freq} seconds>'
+    ).format(
+        rep_start=rep,
+        num1=len(self._dataframe.index),
+        num2=len(self._dataframe.columns),
+        freq=self.frequency,
+    )
 
-    partition_by = _listify(partition_by)
-    annotate_by = _listify(annotate_by)
+  def _is_valid_key(self, keys):
+    keys = _utils.listify(keys)
+    return set(keys) <= set(self.label_keys)
 
-    if not partition_by:
-      dataframe_iter = [(None, self._dataframe)]
+  def is_compatible(self, other):
+    if not isinstance(other, QueryResults):
+      return False
+    if self.label_keys != other.label_keys:
+      return False
+    if not set(self._dataframe.index) & set(other._dataframe.index):
+      return False
+    if not set(self._dataframe.columns) & set(other._dataframe.columns):
+      return False
+    return True
+
+  def _binary_operation(self, other, operation, reverse_order=False):
+    operation_to_symbol = dict(
+        add='+', sub='-', mul='*', div='/', truediv='/', floordiv='//',
+        pow='**', mod='%')
+    operand1 = self._dataframe
+    if isinstance(other, QueryResults):
+      if not self.is_compatible(other):
+        raise ValueError(
+            'The other QueryResults is not compatible for a binary operation')
+      operand2 = other._dataframe
+      other_metric_type = other.metric_type
+    elif isinstance(other, (int, float, long)):
+      operand2 = other
+      other_metric_type = other
     else:
-      dataframe_iter = self._dataframe.groupby(level=partition_by, axis=1)
+      raise TypeError(
+          '%r is not a valid input for adding to QueryResults' % other)
 
-    for name, dataframe in dataframe_iter:
-      if not partition_by:
-        title = 'All timeseries'
-      else:
-        annotations = ['%s = %r' % (key, value)
-                       for key, value in zip(partition_by, _listify(name))]
-        title = ', '.join(annotations)
+    if reverse_order:
+      new_df = getattr(operator, operation)(operand2, operand1)
+      new_metric_type = '(%s %s %s)' % (
+          other_metric_type, operation_to_symbol[operation], self.metric_type)
+    else:
+      new_df = getattr(operator, operation)(operand1, operand2)
+      new_metric_type = '(%s %s %s)' % (
+          self.metric_type, operation_to_symbol[operation], other_metric_type)
 
-      if annotate_by is None:
-        aggregated_series = getattr(dataframe, aggregation_method)(axis=1)
-        dataframe = aggregated_series.to_frame(name='aggregated')
-      else:
-        grouped = dataframe.groupby(level=annotate_by, axis=1)
-        dataframe = grouped.agg(aggregation_method)
+    return QueryResults(new_df, new_metric_type)
 
-      # Call the appropriate visualization function.
-      getattr(_visualization, kind)(
-          dataframe, labels=annotate_by, title=title, **kwargs)
+  def _unary_operation(self, operation):
+    new_df = getattr(numpy, operation)(self._dataframe)
+    new_metric_type = '%s(%s)' % (operation,  self.metric_type)
+    return QueryResults(new_df, new_metric_type)
 
-  def linechart(self, partition_by=_DEFAULT_PARTITION_BY, annotate_by=None,
-                aggregation_method='mean', **kwargs):
+  def __add__(self, other, reverse_order=False):
+    return self._binary_operation(other, 'add', reverse_order)
+
+  def __radd__(self, other):
+    return self.__add__(other, True)
+
+  def __sub__(self, other, reverse_order=False):
+    return self._binary_operation(other, 'sub', reverse_order)
+
+  def __rsub__(self, other):
+    return self.__sub__(other, True)
+
+  def __mul__(self, other, reverse_order=False):
+    return self._binary_operation(other, 'mul', reverse_order)
+
+  def __rmul__(self, other):
+    return self.__mul__(other, True)
+
+  def __div__(self, other, reverse_order=False):
+    return self._binary_operation(other, 'div', reverse_order)
+
+  def __rdiv__(self, other):
+    return self.__div__(other, True)
+
+  def __truediv__(self, other, reverse_order=False):
+    return self._binary_operation(other, 'truediv', reverse_order)
+
+  def __rtruediv__(self, other):
+    return self.__truediv__(other, True)
+
+  def __floordiv__(self, other, reverse_order=False):
+    return self._binary_operation(other, 'floordiv', reverse_order)
+
+  def __rfloordiv__(self, other):
+    return self.__floordiv__(other, True)
+
+  def __pow__(self, other, reverse_order=False):
+    return self._binary_operation(other, 'pow', reverse_order)
+
+  def __rpow__(self, other):
+    return self.__pow__(other, True)
+
+  def __mod__(self, other, reverse_order=False):
+    return self._binary_operation(other, 'mod', reverse_order)
+
+  def __rmod__(self, other):
+    return self.__mod__(other, True)
+
+  def __abs__(self):
+    return self._unary_operation('abs')
+
+  def abs(self):
+    return self._unary_operation('abs')
+
+  def floor(self):
+    return self._unary_operation('floor')
+
+  def ceil(self):
+    return self._unary_operation('ceil')
+
+  def log10(self):
+    return self._unary_operation('log10')
+
+  def log2(self):
+    return self._unary_operation('log2')
+
+  def sqrt(self):
+    return self._unary_operation('sqrt')
+
+  def timeshift(self, freq):
+    new_metric_type = '%s shifted by %s' % (self.metric_type, freq)
+    return QueryResults(self._dataframe.tshift(freq=freq), new_metric_type)
+
+  def delta(self):
+    new_metric_type = 'delta(%s)' % self.metric_type
+    return QueryResults(self._dataframe.diff(), new_metric_type)
+
+  def rate_of_change(self):
+    new_df = self._dataframe.diff() / self.frequency
+    new_metric_type = 'rate_of_change(%s)' % self.metric_type
+    return QueryResults(new_df, new_metric_type)
+
+  def integrate(self):
+    new_df = self._dataframe * self.frequency
+    new_metric_type = 'integrate(%s)' % self.metric_type
+    return QueryResults(new_df, new_metric_type)
+
+  def _aggregate(self, by, func, func_name=None):
+    assert hasattr(func, '__call__')
+    func_name = func_name or func.func_name
+    if by is None:
+      new_df = self._dataframe.apply(func, axis=1).to_frame(name='global')
+      new_metric_type = '%s.%s()'% (self.metric_type, func_name)
+    else:
+      new_df = self._dataframe.groupby(level=by, axis=1).agg(func)
+      new_metric_type = '%s.%s(%s)' % (self.metric_type, func_name, by)
+    return QueryResults(new_df, new_metric_type)
+
+  def mean(self, by=None):
+    return self._aggregate(by, numpy.mean)
+
+  def min(self, by=None):
+    return self._aggregate(by, numpy.min)
+
+  def max(self, by=None):
+    return self._aggregate(by, numpy.max)
+
+  def count(self, by=None):
+    return self._aggregate(by, numpy.count)
+
+  def sum(self, by=None):
+    return self._aggregate(by, numpy.sum)
+
+  def stddev(self, by=None):
+    return self._aggregate(by, numpy.std, 'stddev')
+
+  def variance(self, by=None):
+    return self._aggregate(by, numpy.var, 'variance')
+
+  def percentile(self, by=None, quantile=50):
+    percentile_func = lambda x: numpy.nanpercentile(x, q=quantile)
+    return self._aggregate(by, percentile_func, 'percentile_%s' % quantile)
+
+  def linechart(self, partition_by=None, annotate_by=None, **kwargs):
     """Draws a plotly linechart for this QueryResults.
 
     Args:
@@ -119,17 +259,14 @@ class QueryResults(object):
         linecharts. It can be a string or a list/tuple. Defaults to 'metric_type'.
       annotate_by: One or more labels to aggregate and annotate each linechart
         by. It can be a string or a list/tuple.
-      aggregation_method: The method to apply to the aggregate the timeseries in
-        a single chart given the annotate_by fields.
       **kwargs: Any arguments to pass in to the layout engine
         plotly.graph_objs.Layout().
     """
-    self.plot('linechart', partition_by, annotate_by, aggregation_method,
-              **kwargs)
+    _visualization.plot(self, 'linechart', partition_by, annotate_by, **kwargs)
 
-  def heatmap(self, partition_by=_DEFAULT_PARTITION_BY, annotate_by=None,
-              aggregation_method='mean', zrange=None, colorscale=None,
-              is_logscale=False, is_divergent=False, **kwargs):
+  def heatmap(self, partition_by=None, annotate_by=None,
+              zrange=None, colorscale=None, is_logscale=False,
+              is_divergent=False, **kwargs):
     """Draws a plotly heatmap for this QueryResults.
 
     Args:
@@ -137,8 +274,6 @@ class QueryResults(object):
         heatmaps. It can be a string or a list/tuple. Defaults to 'metric_type'.
       annotate_by: One or more labels to aggregate and annotate each heatmap
         by. It can be a string or a list/tuple.
-      aggregation_method: The method to apply to the aggregate the timeseries in
-        a single chart given the annotate_by fields.
       zrange: A list or tuple of length 2 numbers containing the range to use
         for the colormap. If not specified, then it is calculated from the
         dataframe.
@@ -151,11 +286,7 @@ class QueryResults(object):
       **kwargs: Any arguments to pass in to the layout engine
         plotly.graph_objs.Layout().
     """
-    self.plot('heatmap', partition_by, annotate_by, aggregation_method,
-              zrange=zrange, colorscale=colorscale, is_logscale=is_logscale,
-              is_divergent=is_divergent, **kwargs)
-
-
-def _listify(value):
-  """If value is a string, convert to a list of one element."""
-  return [value] if isinstance(value, basestring) else value
+    _visualization.plot(self, 'heatmap', partition_by, annotate_by,
+                        zrange=zrange, colorscale=colorscale,
+                        is_logscale=is_logscale, is_divergent=is_divergent,
+                        **kwargs)

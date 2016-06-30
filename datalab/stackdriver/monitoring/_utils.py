@@ -14,6 +14,8 @@
 
 from __future__ import absolute_import
 
+import collections
+
 import gcloud.monitoring
 
 import datalab.context
@@ -64,3 +66,15 @@ def list_metric_descriptors(
   """
   client = make_client(project_id, context)
   return client.list_metric_descriptors(filter_string, type_prefix)
+
+
+def listify(value):
+  """If value is a string, convert to a list of one element."""
+  if value is None:
+    return []
+  elif isinstance(value, basestring):
+    return [value]
+  elif isinstance(value, collections.Iterable):
+    return value
+  else:
+    raise TypeError('"value" must be a string or an iterable')
