@@ -209,6 +209,7 @@ def plot(query_results, kind='linechart', partition_by=None,
       by_metric_type = True
       partition_by.remove('metric_type')
     elif 'metric_type' not in annotate_by:
+      # If metric_type is in neither, it is automatically added to partition_by
       by_metric_type = True
 
     # Special case. No need to join the dataframe, and then split.
@@ -217,15 +218,17 @@ def plot(query_results, kind='linechart', partition_by=None,
         plot(qr, kind, partition_by, annotate_by, **kwargs)
       return
 
-    all_dataframes = []
+    # First check the dataframes for compatibility.
     for i, qr in enumerate(query_results):
-      if (i < len(query_results) - 1 and
-          not qr.is_compatible(query_results[i + 1])):
+      if i > 0 and not qr.is_compatible(query_results[0]):
         raise ValueError('The specified QueryResults are not compatible for '
                          'viewing in the same chart.')
-      df = dataframe_utils.add_level(qr._dataframe, qr.metric_type,
-                                     'metric_type')
-      all_dataframes.append(df)
+
+    # Now add the metric_type as an extra column header, and concatenate the
+    # dataframes.
+    all_dataframes = [
+        dataframe_utils.add_level(qr._dataframe, qr.metric_type, 'metric_type')
+        for qr in query_results]
     dataframe = pandas.concat(all_dataframes, axis=1)
 
   else:

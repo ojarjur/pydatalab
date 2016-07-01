@@ -17,6 +17,7 @@ from past.builtins import basestring
 
 import datetime
 import operator
+import re
 
 import numpy
 import pandas
@@ -202,6 +203,43 @@ class QueryResults(object):
   def timeshift(self, freq):
     new_metric_type = '%s shifted by %s' % (self.metric_type, freq)
     return QueryResults(self._dataframe.tshift(freq=freq), new_metric_type)
+
+  def timesplit(self, freq):
+    """Split's the result based on the specified frequency"""
+    freq_to_full = dict(T='minute', H='hour', D='day', W='week', Q='quarter',
+                        A='year')
+    freq = freq.strip()
+    if freq.isalpha():
+      # Add the unit in case it is missing.
+      freq = '1%s' % freq
+    if re.search('[^\d]\d+[^\d]', freq):
+      raise ValueError('"freq" must include only one time unit')
+    elif freq.startswith('-'):
+      raise ValueError('"freq" must be positive')
+    tdelta = pandas.Timedelta(freq)
+    freq_name = freq_to_full[tdelta.resolution]
+    one_ns = pandas.Timedelta('1ns')
+    if self.empty:
+      return []
+
+    results = []
+    df = self._dataframe
+    new_start_time = df.index[0]
+    count = 0
+    while new_start_time <= df.index[-1]:
+      start_time = new_start_time
+      new_start_time += tdelta
+      end_time = new_start_time - one_ns
+      # Pick the next set of rows, and time shift it.
+      new_df = df[start_time: end_time].tshift(freq=-tdelta*count)
+      if count == 0:
+        new_metric_type = 'Last %s' % freq_name
+      else:
+        unit = '%ss' % freq_name if count > 1 else freq_name
+        new_metric_type = '%d %s ago' % (count, unit)
+      results.append(QueryResults(new_df, new_metric_type))
+      count += 1
+    return results
 
   def delta(self):
     new_metric_type = 'delta(%s)' % self.metric_type
