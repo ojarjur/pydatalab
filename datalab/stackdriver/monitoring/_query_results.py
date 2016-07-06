@@ -191,6 +191,9 @@ class QueryResults(object):
   def ceil(self):
     return self._unary_operation('ceil')
 
+  def round(self):
+    return self._unary_operation('round')
+
   def log10(self):
     return self._unary_operation('log10')
 
