@@ -220,7 +220,7 @@ def plot(query_results, kind='linechart', partition_by=None,
 
     # First check the dataframes for compatibility.
     for i, qr in enumerate(query_results):
-      if i > 0 and not qr.is_compatible(query_results[0]):
+      if i > 0 and not qr.is_compatible(query_results[i-1]):
         raise ValueError('The specified QueryResults are not compatible for '
                          'viewing in the same chart.')
 

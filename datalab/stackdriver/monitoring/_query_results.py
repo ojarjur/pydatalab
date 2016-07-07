@@ -203,43 +203,51 @@ class QueryResults(object):
   def sqrt(self):
     return self._unary_operation('sqrt')
 
-  def timeshift(self, freq):
-    new_metric_type = '%s shifted by %s' % (self.metric_type, freq)
-    return QueryResults(self._dataframe.tshift(freq=freq), new_metric_type)
-
   def timesplit(self, freq):
     """Split's the result based on the specified frequency"""
-    freq_to_full = dict(T='minute', H='hour', D='day', W='week', Q='quarter',
-                        A='year')
-    freq = freq.strip()
-    if freq.isalpha():
-      # Add the unit in case it is missing.
-      freq = '1%s' % freq
-    if re.search('[^\d]\d+[^\d]', freq):
-      raise ValueError('"freq" must include only one time unit')
-    elif freq.startswith('-'):
-      raise ValueError('"freq" must be positive')
-    tdelta = pandas.Timedelta(freq)
-    freq_name = freq_to_full[tdelta.resolution]
-    one_ns = pandas.Timedelta('1ns')
     if self.empty:
       return []
 
+    freq_to_full = dict(H='hour', D='day', W='week', M='month', Q='quarter',
+                        A='year')
+    regex_match = re.match('(\d*)(H|D|W|M|Q|A)$', freq)
+    if not regex_match:
+      raise ValueError('"freq" does not have a valid value')
+    freq_count = 1 if not regex_match.group(1) else int(regex_match.group(1))
+    freq_name = freq_to_full[regex_match.group(2)]
+
+    freq = '%sS' % freq if freq in ['M', 'Q', 'A'] else freq
+    offset = pandas.tseries.frequencies.to_offset(freq)
+    one_ns = pandas.Timedelta('1ns')
+
     results = []
     df = self._dataframe
-    new_start_time = df.index[0]
+
+    # Pick the first index value as the start, and zero out anything < 1 hour.
+    first_start_time = df.index[0].replace(minute=0, second=0, microsecond=0)
+    if freq != 'H':
+      first_start_time = first_start_time.replace(hour=0)
+    if first_start_time != first_start_time + 0*offset:
+      # If not on the boundary, move the start time back.
+      first_start_time -= offset
+
     count = 0
+    new_start_time = first_start_time
     while new_start_time <= df.index[-1]:
       start_time = new_start_time
-      new_start_time += tdelta
+      new_start_time += offset
       end_time = new_start_time - one_ns
-      # Pick the next set of rows, and time shift it.
-      new_df = df[start_time: end_time].tshift(freq=-tdelta*count)
+      # Pick the correct time slice, and timeshift it based on first slice.
+      new_df = df[start_time: end_time].tshift(freq=first_start_time-start_time)
+
       if count == 0:
-        new_metric_type = 'Last %s' % freq_name
+        if freq_count == 1:
+          new_metric_type = 'Last %s' % freq_name
+        else:
+          new_metric_type = 'Last %d %ss' % (freq_count, freq_name)
       else:
-        unit = '%ss' % freq_name if count > 1 else freq_name
-        new_metric_type = '%d %s ago' % (count, unit)
+        unit = freq_name if count*freq_count == 1 else '%ss' % freq_name
+        new_metric_type = '%d %s ago' % (count*freq_count, unit)
       results.append(QueryResults(new_df, new_metric_type))
       count += 1
     return results
