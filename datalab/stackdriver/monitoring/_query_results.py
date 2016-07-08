@@ -204,13 +204,24 @@ class QueryResults(object):
     return self._unary_operation('sqrt')
 
   def timesplit(self, freq):
-    """Split's the result based on the specified frequency"""
+    """Split's the result based on the specified frequency
+
+    Args:
+     freq: The frequency at which to split the query results. It borrows its
+       format from pandas Offset Aliases, but is restricted to:
+       [H, D, W, M, Q, A]. For 1 day, 'D'/'1D' will work fine.
+
+    Returns:
+      A list of QueryResults split based on the input frequency. All the results
+      after the 1st one are time-shifted so as to be aligned with it.
+    """
     if self.empty:
       return []
 
+    freq = freq.upper()
     freq_to_full = dict(H='hour', D='day', W='week', M='month', Q='quarter',
                         A='year')
-    regex_match = re.match('(\d*)(H|D|W|M|Q|A)$', freq)
+    regex_match = re.match('(\d*)(%s)$' % '|'.join(freq_to_full), freq)
     if not regex_match:
       raise ValueError('"freq" does not have a valid value')
     freq_count = 1 if not regex_match.group(1) else int(regex_match.group(1))

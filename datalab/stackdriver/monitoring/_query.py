@@ -14,6 +14,9 @@
 
 from __future__ import absolute_import
 
+import datetime
+import dateutil
+
 import gcloud.monitoring
 import pandas
 
@@ -21,49 +24,57 @@ from . import _dataframe
 from . import _query_results
 from . import _utils
 
+_FREQ_MAP = dict(TODAY='D', YESTERDAY='D', WEEK_TO_DATE='W', LAST_WEEK='W',
+                 MONTH_TO_DATE='MS', LAST_MONTH='MS', QUARTER_TO_DATE='QS',
+                 LAST_QUARTER='QS', YEAR_TO_DATE='AS', LAST_YEAR='AS')
+
+
+class TimeInterval(object):
+  """User friendly relative time intervals."""
+  TODAY = 'TODAY'
+  YESTERDAY = 'YESTERDAY'
+  WEEK_TO_DATE = 'WEEK_TO_DATE'
+  LAST_WEEK = 'LAST_WEEK'
+  MONTH_TO_DATE = 'MONTH_TO_DATE'
+  LAST_MONTH = 'LAST_MONTH'
+  QUARTER_TO_DATE = 'QUARTER_TO_DATE'
+  LAST_QUARTER = 'LAST_QUARTER'
+  YEAR_TO_DATE = 'YEAR_TO_DATE'
+  LAST_YEAR = 'LAST_YEAR'
+
 
 class Query(gcloud.monitoring.Query):
   """Query object for retrieving metric data."""
 
   def __init__(self,
                metric_type=gcloud.monitoring.Query.DEFAULT_METRIC_TYPE,
-               end_time=None, days=0, hours=0, minutes=0,
-               project_id=None, context=None):
+               interval=None, project_id=None, context=None):
     """Initializes the core query parameters.
 
-    The start time (exclusive) is determined by combining the
-    values of "days", "hours", and "minutes", and subtracting
-    the resulting duration from "end_time".
-
-    It is also allowed to omit the end time and duration here,
-    in which case the select_interval() method must be called
-    before the query is executed.
+    Example:
+      query = Query('compute.googleapis.com/instance/uptime', 'LAST_MONTH')
+      query = Query(interval=TimeInterval.LAST_MONTH)
 
     Args:
       metric_type: The metric type name. The default value is
           "compute.googleapis.com/instance/cpu/utilization", but
           please note that this default value is provided only for
           demonstration purposes and is subject to change.
-      end_time: The end time (inclusive) of the time interval for which
-          results should be returned, as a datetime object. The default
-          is the start of the current minute.
-      days: The number of days in the time interval.
-      hours: The number of hours in the time interval.
-      minutes: The number of minutes in the time interval.
+      interval: Time interval for the timeseries. For example:
+        TimeInterval.TODAY. Defaults to None.
       project_id: An optional project ID or number to override the one provided
           by the context.
       context: An optional Context object to use instead of the global default.
 
     Raises:
-        ValueError: "end_time" was specified but "days", "hours", and "minutes"
-            are all zero. If you really want to specify a point in time, use
-            the select_interval() method.
+      ValueError: "interval" does not have a valid value.
     """
     client = _utils.make_client(project_id, context)
+    super(Query, self).__init__(client, metric_type)
+    if interval is not None:
+      self._start_time, self._end_time = _get_timestamps(interval)
+
     self._results = None
-    super(Query, self).__init__(client, metric_type,
-                                end_time=end_time,
-                                days=days, hours=hours, minutes=minutes)
 
   def select_metric_type(self, metric_type):
     """Copy the query and update the metric type.
@@ -77,6 +88,80 @@ class Query(gcloud.monitoring.Query):
     new_query = self.copy()
     new_query._filter.metric_type = metric_type
     return new_query
+
+  def select_interval(self, end_time=None, start_time=None, offset=None):
+    """Copy the query and set the query time interval.
+
+    As a convenience, you can alternatively specify the interval when you create
+    the query initially. Only one of start_time and offset can be specified. If
+    both are None, then the interval is a point in time containing only the
+    end_time.
+
+    The dates are parsed using the dateutil parser. When a date string is
+    ambiguous:
+      1. For a 3-integer date, year is assumed to be last.
+      2. When there is ambiguity between month and day, day comes last.
+    Given the current year is 2016, '03/02', '2016/03/02' and '03/02/16' are all
+    parsed as March 2nd 2016.
+
+    Example calls:
+      query = query.select_interval('2016/05/28 5pm', '2016/05/21 5pm')
+      query = query.select_interval('05/28 5pm', '05/21 5pm')  # Current year
+      query = query.select_interval('8pm', '2pm') # Today
+      query = query.select_interval(start_time='9:00') # Today ending now.
+      query = query.select_interval(offset='4h') # Last 4 hours.
+      query = query.select_interval(offset='1d 4h') # Last 1 day, 4 hours.
+
+
+    Args:
+      end_time: The end time as a string or Python datetime object.
+        Defaults to the current time.
+      start_time: The start time as a string or Python datetime object.
+        Defaults to None.
+      offset: The offset from the end_time. This is specified as a pandas
+        offset alias as shown here:
+       http://pandas.pydata.org/pandas-docs/stable/timeseries.html#offset-aliases
+
+    Returns:
+      The new query object.
+
+    Raises:
+      ValueError: both "start_time" and "offset" are specified.
+    """
+    if not(start_time is None or offset is None):
+      raise ValueError('At most one of start_time and offset can be specified')
+    end_time = _parse_timestamp(end_time, default_now=True)
+    if offset is None:
+      start_time = _parse_timestamp(start_time)
+    else:
+      start_time = end_time - pandas.tseries.frequencies.to_offset(offset)
+    return super(Query, self).select_interval(end_time, start_time)
+
+  def align(self, per_series_aligner, seconds=0, minutes=0, hours=0, days=0):
+    """Copy the query and add temporal alignment.
+
+    If per_series_aligner is not Aligner.ALIGN_NONE, each time
+    series will contain data points only on the period boundaries.
+
+    Example:
+      query = query.align(Aligner.ALIGN_MEAN, minutes=5)
+
+    It is also possible to specify the aligner as a literal string::
+      query = query.align('ALIGN_MEAN', minutes=5)
+
+    Args:
+      per_series_aligner: The approach to be used to align individual time
+        series. For example: Aligner.ALIGN_MEAN.
+      seconds: The number of seconds in the alignment period.
+      minutes: The number of minutes in the alignment period.
+      hours: The number of hours in the alignment period.
+      days: The number of days in the alignment period.
+
+    Returns:
+      The new query object.
+    """
+    hours = days*24 + hours
+    return super(Query, self).align(per_series_aligner, seconds, minutes, hours)
 
   def execute(self, use_cache=True):
     """Executes the query, and populates the query results.
@@ -129,3 +214,48 @@ class Query(gcloud.monitoring.Query):
     # Sort the data, and clean up index values, and NaNs.
     df = df.sort_values(sorted_columns).reset_index(drop=True).fillna('')
     return df
+
+def _get_utcnow():
+  return datetime.datetime.utcnow().replace(second=0, microsecond=0)
+
+def _get_timestamps(interval):
+  """Returns the start and end datetime objects given the interval name."""
+  interval = interval.upper()
+  freq = _FREQ_MAP.get(interval)
+  if freq is None:
+    raise ValueError('"interval" does not have a valid value')
+
+  to_offset = pandas.tseries.frequencies.to_offset
+  now = _get_utcnow()
+  today = now.replace(hour=0, minute=0)
+  ends_now = interval.endswith('_TO_DATE') or interval == TimeInterval.TODAY
+  end_time = now if ends_now else None
+  curr_period_begin = (today - to_offset(freq)).to_datetime()
+
+  if interval == TimeInterval.TODAY:
+    start_time = today
+  elif interval == TimeInterval.YESTERDAY:
+    end_time = today
+    start_time = curr_period_begin
+  else:
+    if ends_now:
+      start_time = curr_period_begin
+    else:
+      end_time = curr_period_begin
+      start_time = (end_time - to_offset(freq)).to_datetime()
+
+  return start_time, end_time
+
+
+def _parse_timestamp(timestamp, default_now=False):
+    if timestamp is None:
+      if default_now:
+        return _get_utcnow()
+      else:
+        return None
+    elif isinstance(timestamp, datetime.datetime):
+      return timestamp
+    elif isinstance(timestamp, basestring):
+      return dateutil.parser.parse(timestamp)
+    else:
+      raise TypeError('"timestamp" must be a string or datetime object')
