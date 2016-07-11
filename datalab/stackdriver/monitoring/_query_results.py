@@ -290,112 +290,121 @@ class QueryResults(object):
     new_metric_type = 'integrate(%s)' % self.metric_type
     return QueryResults(new_df, new_metric_type)
 
-  def _aggregate(self, by, func, func_name=None):
+  def aggregate(self, by, func=numpy.mean, func_name=None):
     """Aggregates the result based on a given header level.
 
     Args:
-      by: A header level in the data. E.g. zone, project_id, etc.
-      func: A function that can be used in pandas.DataFrame.apply
-      func_name: Name of the function. Not needed for numpy functions.
+      by: A header level in the data over which to aggregate. E.g. zone.
+      func: A function to find an aggregate over the values at a given time.
+       numpy functions can be passed by name, e.g. "mean", "std", etc. Defaults
+       to numpy.mean.
+      func_name: Name of the function to use to assign the metric type of the
+        new QueryResults - this is useful when passing in a lambda function.
 
     Returns:
       A new QueryResults with only the specified level in its column header, and
       with the aggregate for the specified time at each row.
     """
-    assert hasattr(func, '__call__')
-    func_name = func_name or func.func_name
+    if isinstance(func, basestring):
+      func_name = func_name or func
+      func = getattr(numpy, func)
+    assert func is None or hasattr(func, '__call__')
+    func_name = func_name or func.__name__
     if by is None:
       new_df = self._dataframe.apply(func, axis=1).to_frame(name='global')
       new_metric_type = '%s.%s()'% (self.metric_type, func_name)
     else:
-      new_df = self._dataframe.groupby(level=by, axis=1).agg(func)
+      new_df = self._dataframe.groupby(level=by, axis=1).aggregate(func)
       new_metric_type = '%s.%s(%s)' % (self.metric_type, func_name, by)
     return QueryResults(new_df, new_metric_type)
 
   def mean(self, by=None):
     """Finds the mean of the result for a given header level."""
-    return self._aggregate(by, numpy.mean)
+    return self.aggregate(by, numpy.mean)
 
   def min(self, by=None):
     """Finds the min of the result for a given header level."""
-    return self._aggregate(by, numpy.min)
+    return self.aggregate(by, numpy.min)
 
   def max(self, by=None):
     """Finds the max of the result for a given header level."""
-    return self._aggregate(by, numpy.max)
-
-  def count(self, by=None):
-    """Finds the count of the result for a given header level."""
-    return self._aggregate(by, numpy.count)
+    return self.aggregate(by, numpy.max)
 
   def sum(self, by=None):
     """Finds the sum of the result for a given header level."""
-    return self._aggregate(by, numpy.sum)
+    return self.aggregate(by, numpy.sum)
 
-  def stddev(self, by=None):
+  def std(self, by=None):
     """Finds the standard deviation of the result for a given header level."""
-    return self._aggregate(by, numpy.std, 'stddev')
+    return self.aggregate(by, numpy.std)
 
-  def variance(self, by=None):
+  def var(self, by=None):
     """Finds the variance of the result for a given header level."""
-    return self._aggregate(by, numpy.var, 'variance')
+    return self.aggregate(by, numpy.var)
 
   def percentile(self, by=None, quantile=50):
     """Finds the percentile of the result for a given header level."""
     percentile_func = lambda x: numpy.nanpercentile(x, q=quantile)
-    return self._aggregate(by, percentile_func, 'percentile_%s' % quantile)
+    return self.aggregate(by, percentile_func, 'percentile_%s' % quantile)
 
-  def _top_sorted(self, count=5, percentage=None, agg='mean', is_top=True):
+  def _top_sorted(self, count=5, percentage=None, aggregation=numpy.mean,
+                  is_top=True):
     df = self._dataframe
     if percentage is not None:
       if not 0 < percentage <= 100:
         raise ValueError('"percentage" must a number between 0 and 100')
       count = int(numpy.ceil(percentage/100.0 * len(df.columns)))
-    agg_method = getattr(numpy, agg)
-    sorted_df = df.apply(agg_method).sort_values(ascending=is_top)
+
+    if isinstance(aggregation, basestring):
+      func, func_name = getattr(numpy, aggregation), aggregation
+    else:
+      func, func_name = aggregation, aggregation.__name__
+
+    sorted_df = df.apply(func).sort_values(ascending=is_top)
     new_df = df.reindex_axis(sorted_df.index, axis=1).iloc[:, -count:]
 
     caller = 'top' if is_top else 'bottom'
     number = count if percentage is None else '%s%%' % percentage
-    new_metric_type = '%s_%s_%s(%s)' % (caller, number, agg, self.metric_type)
+    new_metric_type = '%s_%s_%s(%s)' % (
+        caller, number, func_name, self.metric_type)
     return QueryResults(new_df, new_metric_type)
 
-  def top(self, count=5, percentage=None, agg='mean'):
+  def top(self, count=5, percentage=None, aggregation=numpy.mean):
     """Returns the top timeseries in the QueryResults.
 
     Args:
       count: The number of top results to pick. Defaults to 5.
       percentage: The percentage of top results to pick. When both percentage
         and count are specified, the percentage is used.
-      agg: The aggregation method to use across the timeseries. Defaults to
-        "mean".
+     aggregation: A numpy aggregation method as a string (e.g. "std", "min") or
+       a function (numpy.std, numpy.min). Defaults to "mean".
 
     Returns:
       A new QueryResults with only the top timeseries columns.
     """
-    return self._top_sorted(count, percentage, agg, is_top=True)
+    return self._top_sorted(count, percentage, aggregation, is_top=True)
 
-  def bottom(self, count=5, percentage=None, agg='mean'):
+  def bottom(self, count=5, percentage=None, aggregation=numpy.mean):
     """Returns the bottom timeseries in the QueryResults.
 
     Args:
       count: The number of bottom results to pick. Defaults to 5.
-      percentage: The percentage of bottom results to pick. When both percentage
-        and count are specified, the percentage is used.
-      agg: The aggregation method to use across the timeseries. Defaults to
-        "mean".
+      percentage: The percentage of bottom results to pick. When both
+        percentage and count are specified, the percentage is used.
+     aggregation: A numpy aggregation method as a string (e.g. "std", "min") or
+       a function (numpy.std, numpy.min). Defaults to "mean".
 
     Returns:
       A new QueryResults with only the top timeseries columns.
     """
-    return self._top_sorted(count, percentage, agg, is_top=False)
+    return self._top_sorted(count, percentage, aggregation, is_top=False)
 
   def linechart(self, partition_by=None, annotate_by=None, **kwargs):
     """Draws a plotly linechart for this QueryResults.
 
     Args:
       partition_by: One or more labels to partition the results into separate
-        linecharts. It can be a string or a list/tuple. Defaults to 'metric_type'.
+        linecharts. It can be a string or a list. Defaults to 'metric_type'.
       annotate_by: One or more labels to aggregate and annotate each linechart
         by. It can be a string or a list/tuple.
       **kwargs: Any arguments to pass in to the layout engine
@@ -411,7 +420,7 @@ class QueryResults(object):
 
     Args:
       partition_by: One or more labels to partition the results into separate
-        heatmaps. It can be a string or a list/tuple. Defaults to 'metric_type'.
+        heatmaps. It can be a string or a list. Defaults to 'metric_type'.
       annotate_by: One or more labels to aggregate and annotate each heatmap
         by. It can be a string or a list/tuple.
       zrange: A list or tuple of length 2 numbers containing the range to use
