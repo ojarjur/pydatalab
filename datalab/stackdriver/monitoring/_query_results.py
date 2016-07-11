@@ -202,13 +202,16 @@ class QueryResults(object):
   def sqrt(self):
     return self._unary_operation('sqrt')
 
-  def timesplit(self, freq):
+  def timesplit(self, freq, use_average=False):
     """Split's the result based on the specified frequency
 
     Args:
      freq: The frequency at which to split the query results. It borrows its
        format from pandas Offset Aliases, but is restricted to:
        [H, D, W, M, Q, A]. For 1 day, 'D'/'1D' will work fine.
+     use_average: If True, it takes an average over the previous intervals, so
+       the latest interval (say week) can be compared to the average of the past
+       intervals.
 
     Returns:
       A list of QueryResults split based on the input frequency. All the results
@@ -260,6 +263,14 @@ class QueryResults(object):
         new_metric_type = '%d %s ago' % (count*freq_count, unit)
       results.append(QueryResults(new_df, new_metric_type))
       count += 1
+
+    if count > 2 and use_average:
+      # Collect all the dataframes for old intervals, and take their mean.
+      concat_df = pandas.concat([qr._dataframe for qr in results[1:]])
+      new_df = concat_df.groupby(level=0).mean()
+      new_metric_type = 'Avg of previous %d %d-%s invervals' % (
+          count - 1, freq_count, freq_name)
+      results = [results[0], QueryResults(new_df, new_metric_type)]
     return results
 
   def delta(self):
