@@ -274,20 +274,34 @@ class QueryResults(object):
     return results
 
   def delta(self):
+    """Returns a new result with the change of the metric over time."""
     new_metric_type = 'delta(%s)' % self.metric_type
     return QueryResults(self._dataframe.diff(), new_metric_type)
 
   def rate_of_change(self):
+    """Returns a new result with the rate of change over time."""
     new_df = self._dataframe.diff() / self.frequency
     new_metric_type = 'rate_of_change(%s)' % self.metric_type
     return QueryResults(new_df, new_metric_type)
 
   def integrate(self):
+    """Returns a new result with values multiplied by frequency in seconds."""
     new_df = self._dataframe * self.frequency
     new_metric_type = 'integrate(%s)' % self.metric_type
     return QueryResults(new_df, new_metric_type)
 
   def _aggregate(self, by, func, func_name=None):
+    """Aggregates the result based on a given header level.
+
+    Args:
+      by: A header level in the data. E.g. zone, project_id, etc.
+      func: A function that can be used in pandas.DataFrame.apply
+      func_name: Name of the function. Not needed for numpy functions.
+
+    Returns:
+      A new QueryResult with only the specified level in its column header, and
+      with the aggregate for the specified time at each row.
+    """
     assert hasattr(func, '__call__')
     func_name = func_name or func.func_name
     if by is None:
@@ -299,27 +313,35 @@ class QueryResults(object):
     return QueryResults(new_df, new_metric_type)
 
   def mean(self, by=None):
+    """Finds the mean of the result for a given header level."""
     return self._aggregate(by, numpy.mean)
 
   def min(self, by=None):
+    """Finds the min of the result for a given header level."""
     return self._aggregate(by, numpy.min)
 
   def max(self, by=None):
+    """Finds the max of the result for a given header level."""
     return self._aggregate(by, numpy.max)
 
   def count(self, by=None):
+    """Finds the count of the result for a given header level."""
     return self._aggregate(by, numpy.count)
 
   def sum(self, by=None):
+    """Finds the sum of the result for a given header level."""
     return self._aggregate(by, numpy.sum)
 
   def stddev(self, by=None):
+    """Finds the standard deviation of the result for a given header level."""
     return self._aggregate(by, numpy.std, 'stddev')
 
   def variance(self, by=None):
+    """Finds the variance of the result for a given header level."""
     return self._aggregate(by, numpy.var, 'variance')
 
   def percentile(self, by=None, quantile=50):
+    """Finds the percentile of the result for a given header level."""
     percentile_func = lambda x: numpy.nanpercentile(x, q=quantile)
     return self._aggregate(by, percentile_func, 'percentile_%s' % quantile)
 
@@ -339,9 +361,33 @@ class QueryResults(object):
     return QueryResults(new_df, new_metric_type)
 
   def top(self, count=5, percentage=None, agg='mean'):
+    """Returns the top timeseries in the QueryResult.
+
+    Args:
+      count: The number of top results to pick. Defaults to 5.
+      percentage: The percentage of top results to pick. When both percentage
+        and count are specified, the percentage is used.
+      agg: The aggregation method to use across the timeseries. Defaults to
+        "mean".
+
+    Returns:
+      A new QueryResult with only the top timeseries columns.
+    """
     return self._top_sorted(count, percentage, agg, is_top=True)
 
   def bottom(self, count=5, percentage=None, agg='mean'):
+    """Returns the bottom timeseries in the QueryResult.
+
+    Args:
+      count: The number of bottom results to pick. Defaults to 5.
+      percentage: The percentage of bottom results to pick. When both percentage
+        and count are specified, the percentage is used.
+      agg: The aggregation method to use across the timeseries. Defaults to
+        "mean".
+
+    Returns:
+      A new QueryResult with only the top timeseries columns.
+    """
     return self._top_sorted(count, percentage, agg, is_top=False)
 
   def linechart(self, partition_by=None, annotate_by=None, **kwargs):
