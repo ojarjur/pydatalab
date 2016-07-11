@@ -180,9 +180,9 @@ def linechart(dataframe, levels=None, **kwargs):
 _ALL_PLOT_KINDS = ('linechart', 'heatmap')
 
 
-def plot(query_results, kind='linechart', partition_by=None,
-         annotate_by=None, **kwargs):
-  """Draws a plotly chart for this QueryResults.
+def plot_query_results(query_results, kind='linechart', partition_by=None,
+                       annotate_by=None, **kwargs):
+  """Draws a plotly chart for one or more QueryResults objects.
 
   Args:
     query_results: One or more QueryResult objects.

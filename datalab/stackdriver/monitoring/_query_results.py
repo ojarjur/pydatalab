@@ -15,7 +15,6 @@
 from __future__ import absolute_import
 from past.builtins import basestring
 
-import datetime
 import operator
 import re
 
@@ -345,7 +344,8 @@ class QueryResults(object):
       **kwargs: Any arguments to pass in to the layout engine
         plotly.graph_objs.Layout().
     """
-    _visualization.plot(self, 'linechart', partition_by, annotate_by, **kwargs)
+    _visualization.plot_query_results(
+        self, 'linechart', partition_by, annotate_by, **kwargs)
 
   def heatmap(self, partition_by=None, annotate_by=None,
               zrange=None, colorscale=None, is_logscale=False,
@@ -369,7 +369,7 @@ class QueryResults(object):
       **kwargs: Any arguments to pass in to the layout engine
         plotly.graph_objs.Layout().
     """
-    _visualization.plot(self, 'heatmap', partition_by, annotate_by,
-                        zrange=zrange, colorscale=colorscale,
-                        is_logscale=is_logscale, is_divergent=is_divergent,
-                        **kwargs)
+    _visualization.plot_query_results(
+        self, 'heatmap', partition_by, annotate_by, zrange=zrange,
+        colorscale=colorscale, is_logscale=is_logscale,
+        is_divergent=is_divergent, **kwargs)
