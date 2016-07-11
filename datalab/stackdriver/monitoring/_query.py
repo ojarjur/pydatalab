@@ -20,7 +20,6 @@ import dateutil
 import gcloud.monitoring
 import pandas
 
-from . import _dataframe
 from . import _query_results
 from . import _utils
 
@@ -248,14 +247,15 @@ def _get_timestamps(interval):
 
 
 def _parse_timestamp(timestamp, default_now=False):
-    if timestamp is None:
-      if default_now:
-        return _get_utcnow()
-      else:
-        return None
-    elif isinstance(timestamp, datetime.datetime):
-      return timestamp
-    elif isinstance(timestamp, basestring):
-      return dateutil.parser.parse(timestamp)
+  """Parses a string timestamp into a Python datetime object."""
+  if timestamp is None:
+    if default_now:
+      return _get_utcnow()
     else:
-      raise TypeError('"timestamp" must be a string or datetime object')
+      return None
+  elif isinstance(timestamp, datetime.datetime):
+    return timestamp
+  elif isinstance(timestamp, basestring):
+    return dateutil.parser.parse(timestamp)
+  else:
+    raise TypeError('"timestamp" must be a string or datetime object')

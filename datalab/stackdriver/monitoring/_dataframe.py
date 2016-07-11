@@ -107,7 +107,7 @@ def add_level(dataframe, level, level_name=None):
   df_headers = pandas.DataFrame(dataframe.columns.tolist(),
                                 columns=dataframe.columns.names)
   df_headers.insert(0, level_name, level)
-  new_columns =  pandas.MultiIndex.from_arrays(
+  new_columns = pandas.MultiIndex.from_arrays(
       df_headers.T.values, names=df_headers.columns.tolist())
   return pandas.DataFrame(dataframe.values, index=dataframe.index,
                           columns=new_columns)

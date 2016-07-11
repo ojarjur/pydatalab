@@ -185,7 +185,7 @@ def plot_query_results(query_results, kind='linechart', partition_by=None,
   """Draws a plotly chart for one or more QueryResults objects.
 
   Args:
-    query_results: One or more QueryResult objects.
+    query_results: One or more QueryResults objects.
     kind: The kind of chart to draw. Defaults to "linechart".
     partition_by: One or more labels to partition the results into separate
       charts. It can be a string or a list/tuple.
@@ -215,12 +215,12 @@ def plot_query_results(query_results, kind='linechart', partition_by=None,
     # Special case. No need to join the dataframe, and then split.
     if by_metric_type:
       for qr in query_results:
-        plot(qr, kind, partition_by, annotate_by, **kwargs)
+        plot_query_results(qr, kind, partition_by, annotate_by, **kwargs)
       return
 
     # First check the dataframes for compatibility.
     for i, qr in enumerate(query_results):
-      if i > 0 and not qr.is_compatible(query_results[i-1]):
+      if i > 0 and qr.label_keys != query_results[0].label_keys:
         raise ValueError('The specified QueryResults are not compatible for '
                          'viewing in the same chart.')
 

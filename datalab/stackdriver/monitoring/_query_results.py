@@ -172,7 +172,7 @@ class QueryResults(object):
 
   def _unary_operation(self, operation):
     new_df = getattr(numpy, operation)(self._dataframe)
-    new_metric_type = '%s(%s)' % (operation,  self.metric_type)
+    new_metric_type = '%s(%s)' % (operation, self.metric_type)
     return QueryResults(new_df, new_metric_type)
 
   def __rmod__(self, other):
@@ -223,7 +223,7 @@ class QueryResults(object):
     freq = freq.upper()
     freq_to_full = dict(H='hour', D='day', W='week', M='month', Q='quarter',
                         A='year')
-    regex_match = re.match('(\d*)(%s)$' % '|'.join(freq_to_full), freq)
+    regex_match = re.match(r'(\d*)(%s)$' % '|'.join(freq_to_full), freq)
     if not regex_match:
       raise ValueError('"freq" does not have a valid value')
     freq_count = 1 if not regex_match.group(1) else int(regex_match.group(1))
@@ -299,7 +299,7 @@ class QueryResults(object):
       func_name: Name of the function. Not needed for numpy functions.
 
     Returns:
-      A new QueryResult with only the specified level in its column header, and
+      A new QueryResults with only the specified level in its column header, and
       with the aggregate for the specified time at each row.
     """
     assert hasattr(func, '__call__')
@@ -361,7 +361,7 @@ class QueryResults(object):
     return QueryResults(new_df, new_metric_type)
 
   def top(self, count=5, percentage=None, agg='mean'):
-    """Returns the top timeseries in the QueryResult.
+    """Returns the top timeseries in the QueryResults.
 
     Args:
       count: The number of top results to pick. Defaults to 5.
@@ -371,12 +371,12 @@ class QueryResults(object):
         "mean".
 
     Returns:
-      A new QueryResult with only the top timeseries columns.
+      A new QueryResults with only the top timeseries columns.
     """
     return self._top_sorted(count, percentage, agg, is_top=True)
 
   def bottom(self, count=5, percentage=None, agg='mean'):
-    """Returns the bottom timeseries in the QueryResult.
+    """Returns the bottom timeseries in the QueryResults.
 
     Args:
       count: The number of bottom results to pick. Defaults to 5.
@@ -386,7 +386,7 @@ class QueryResults(object):
         "mean".
 
     Returns:
-      A new QueryResult with only the top timeseries columns.
+      A new QueryResults with only the top timeseries columns.
     """
     return self._top_sorted(count, percentage, agg, is_top=False)
 
