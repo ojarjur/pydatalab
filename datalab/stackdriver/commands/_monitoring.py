@@ -14,8 +14,6 @@
 from __future__ import absolute_import
 
 try:
-  import IPython
-  import IPython.core.display
   import IPython.core.magic
 except ImportError:
   raise Exception('This module can only be loaded in ipython.')
@@ -71,33 +69,11 @@ def _list_resource_descriptors(args, _):
   """Lists the resource descriptors in the project."""
   project_id = args['project']
   pattern = args['type'] or '*'
-  data = [
-      collections.OrderedDict([
-          ('Resource type', resource.type),
-          ('Labels', ', '. join([l.key for l in resource.labels])),
-      ])
-      for resource in gcm.list_resource_descriptors(project_id=project_id)
-      if fnmatch.fnmatch(resource.type, pattern)
-  ]
-  return IPython.core.display.HTML(
-      datalab.utils.commands.HtmlBuilder.render_table(data))
+  return gcm.ResourceDescriptors(project_id=project_id).table(pattern=pattern)
 
 
 def _list_metric_descriptors(args, _):
   """Lists the metric descriptors in the project."""
   project_id = args['project']
   pattern = args['type'] or '*'
-  data = [
-      collections.OrderedDict([
-          ('Metric type', metric.type),
-          ('Display name', metric.display_name),
-          ('Kind', metric.metric_kind),
-          ('Value', metric.value_type),
-          ('Unit', metric.unit),
-          ('Labels', ', '. join([l.key for l in metric.labels])),
-      ])
-      for metric in gcm.list_metric_descriptors(project_id=project_id)
-      if fnmatch.fnmatch(metric.type, pattern)
-  ]
-  return IPython.core.display.HTML(
-      datalab.utils.commands.HtmlBuilder.render_table(data))
+  return gcm.MetricDescriptors(project_id=project_id).table(pattern=pattern)

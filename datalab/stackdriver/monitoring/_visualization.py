@@ -111,6 +111,8 @@ def heatmap(dataframe, levels=None, zrange=None, colorscale=None,
     **kwargs: Any arguments to pass in to the layout engine
       plotly.graph_objs.Layout().
   """
+  py.init_notebook_mode()
+
   if dataframe is None or dataframe.empty:
     return
   # For a square dataframe with identical index and columns, we need to extract
@@ -159,6 +161,8 @@ def linechart(dataframe, levels=None, **kwargs):
     **kwargs: Any arguments to pass in to the layout engine
       plotly.graph_objs.Layout().
   """
+  py.init_notebook_mode()
+
   if dataframe is None or dataframe.empty:
     return
 

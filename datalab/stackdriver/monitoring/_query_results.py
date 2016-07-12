@@ -21,8 +21,6 @@ import re
 import numpy
 import pandas
 
-from IPython import display
-
 from . import _utils
 from . import _visualization
 
@@ -83,9 +81,15 @@ class QueryResults(object):
         freq=self.frequency,
     )
 
-  def table(self, max_points=-1):
-    """Visualize the results as an HTML table."""
-    display.display(self._dataframe.head(max_points))
+  def table(self, max_rows=-1):
+    """Visualize the results as a table.
+
+    Args:
+      max_rows: The maximum number of rows (timestamps) to display. Defaults to
+        -1 which shows all the data.
+    """
+    import IPython.display
+    IPython.display.display(self._dataframe.head(max_rows))
 
   def is_compatible(self, other):
     if not isinstance(other, QueryResults):
