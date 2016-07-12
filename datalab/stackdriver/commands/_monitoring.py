@@ -90,8 +90,10 @@ def _list_metric_descriptors(args, _):
   data = [
       collections.OrderedDict([
           ('Metric type', metric.type),
+          ('Display name', metric.display_name),
           ('Kind', metric.metric_kind),
           ('Value', metric.value_type),
+          ('Unit', metric.unit),
           ('Labels', ', '. join([l.key for l in metric.labels])),
       ])
       for metric in gcm.list_metric_descriptors(project_id=project_id)

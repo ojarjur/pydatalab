@@ -30,11 +30,9 @@ from . import _visualization
 class QueryResults(object):
   """QueryResults object contains the results of executing a query."""
 
-  def __init__(self, dataframe, metric_type, shorten_metric_type=False):
+  def __init__(self, dataframe, metric_type):
     self._dataframe = dataframe
     self.metric_type = metric_type
-    if shorten_metric_type:
-      self.metric_type = metric_type.split('/')[-1]
 
   @property
   def empty(self):

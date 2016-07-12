@@ -162,25 +162,23 @@ class Query(gcloud.monitoring.Query):
     hours = days*24 + hours
     return super(Query, self).align(per_series_aligner, seconds, minutes, hours)
 
-  def execute(self, use_cache=True):
-    """Executes the query, and populates the query results.
-
-    Args:
-      use_cache: whether to use cached results or not.
-    """
-    if not use_cache or self._results is None:
-      self._results = _query_results.QueryResults(
-          self.as_dataframe(), self.metric_type, shorten_metric_type=True)
-
-  def results(self, use_cache=True):
+  def results(self, use_cache=True, use_short_name=True):
     """Retrieves results for the query.
 
     Args:
-      use_cache: whether to use cached results or not.
+      use_cache: Whether to use cached results or not.
+      use_short_name: Whether to use a shortened form of the metric_type.
     Returns:
       A QueryResults object containing the results.
     """
-    self.execute(use_cache)
+    name = self.metric_type
+    if use_short_name:
+      name = name.split('/')[-1]
+    if not use_cache or self._results is None:
+      self._results = _query_results.QueryResults(
+          self.as_dataframe(), name)
+    else:
+      self._results.metric_type = name
     return self._results
 
   def labels_as_dataframe(self):
