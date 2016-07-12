@@ -35,6 +35,10 @@ class QueryResults(object):
     self.metric_type = metric_type
 
   @property
+  def dataframe(self):
+    return self._dataframe.copy()
+
+  @property
   def empty(self):
     """Returns True iff the results are empty."""
     return self._dataframe.empty
@@ -231,44 +235,57 @@ class QueryResults(object):
     offset = pandas.tseries.frequencies.to_offset(freq)
     one_ns = pandas.Timedelta('1ns')
 
-    results = []
-    df = self._dataframe
+    split_dataframes = []
 
     # Pick the first index value as the start, and zero out anything < 1 hour.
-    first_start_time = df.index[0].replace(minute=0, second=0, microsecond=0)
+    first_start_time = self._dataframe.index[0].replace(
+        minute=0, second=0, microsecond=0)
     if freq != 'H':
       first_start_time = first_start_time.replace(hour=0)
     if first_start_time != first_start_time + 0*offset:
       # If not on the boundary, move the start time back.
       first_start_time -= offset
 
-    count = 0
+    last_start_time = None
     new_start_time = first_start_time
-    while new_start_time <= df.index[-1]:
+
+    # Split the dataframe into the required intervals.
+    while new_start_time <= self._dataframe.index[-1]:
       start_time = new_start_time
       new_start_time += offset
       end_time = new_start_time - one_ns
-      # Pick the correct time slice, and timeshift it based on first slice.
-      new_df = df[start_time: end_time].tshift(freq=first_start_time-start_time)
+      new_df = self._dataframe[start_time: end_time]
+      last_start_time = new_df.index[0]
+      split_dataframes.append(new_df)
 
-      if count == 0:
-        if freq_count == 1:
-          new_metric_type = 'Last %s' % freq_name
-        else:
-          new_metric_type = 'Last %d %ss' % (freq_count, freq_name)
-      else:
-        unit = freq_name if count*freq_count == 1 else '%ss' % freq_name
-        new_metric_type = '%d %s ago' % (count*freq_count, unit)
-      results.append(QueryResults(new_df, new_metric_type))
-      count += 1
+    # Time shift the dataframes to line up with the last dataframe.
+    for i, df in enumerate(split_dataframes[:-1]):
+      split_dataframes[i] = df.tshift(freq=last_start_time - df.index[0])
 
-    if count > 2 and use_average:
+    # Create a query result from the last interval.
+    if freq_count == 1:
+      first_metric_type = 'Latest %s' % freq_name
+    else:
+      first_metric_type = 'Latest %d %ss' % (freq_count, freq_name)
+    results = [QueryResults(split_dataframes[-1], first_metric_type)]
+
+    # Use the remaining dataframes for creating one or more results.
+    other_dataframes = list(reversed(split_dataframes[:-1]))
+
+    if len(other_dataframes) > 1 and use_average:
       # Collect all the dataframes for old intervals, and take their mean.
-      concat_df = pandas.concat([qr._dataframe for qr in results[1:]])
-      new_df = concat_df.groupby(level=0).mean()
+      concat_df = pandas.concat(other_dataframes)
+      aggregated_df = concat_df.groupby(level=0).mean()
       new_metric_type = 'Avg of previous %d %d-%s invervals' % (
-          count - 1, freq_count, freq_name)
-      results = [results[0], QueryResults(new_df, new_metric_type)]
+          len(other_dataframes), freq_count, freq_name)
+      results.append(QueryResults(aggregated_df, new_metric_type))
+    else:
+      for i, df in enumerate(other_dataframes):
+        count = (i + 1) * freq_count
+        unit = freq_name if count == 1 else '%ss' % freq_name
+        new_metric_type = '%d %s ago' % (count, unit)
+        results.append(QueryResults(df, new_metric_type))
+
     return results
 
   def delta(self):

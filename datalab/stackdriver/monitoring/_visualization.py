@@ -136,7 +136,7 @@ def heatmap(dataframe, levels=None, zrange=None, colorscale=None,
   if 'margin' not in kwargs:
     kwargs['margin'] = {}
   if 'l' not in kwargs['margin']:
-    kwargs['margin']['l'] = 0.6 * kwargs['font']['size'] * max([
+    kwargs['margin']['l'] = 0.65 * kwargs['font']['size'] * max([
         len(col) for col in dataframe.columns])
 
   zrange = zrange or (dataframe.min().min(), dataframe.max().max())
